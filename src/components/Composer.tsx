@@ -24,6 +24,7 @@ export function Composer({
   onModel,
   onSend,
   onCancel,
+  onRestore,
 }: {
   text: string;
   mode: AgentMode;
@@ -37,6 +38,7 @@ export function Composer({
   onModel: (model: string) => void;
   onSend: () => void;
   onCancel: () => void;
+  onRestore?: () => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const blocked = Boolean(disabledReason);
@@ -76,7 +78,18 @@ export function Composer({
         </div>
       )}
       {disabledReason && !busy && (
-        <p className="mb-2 text-sm text-mute">{disabledReason}</p>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <p className="text-sm text-mute">{disabledReason}</p>
+          {onRestore && (
+            <button
+              type="button"
+              onClick={onRestore}
+              className="border border-rule px-2 py-1 font-mono text-[10px] uppercase tracking-wider hover:border-paper hover:text-paper"
+            >
+              Restore
+            </button>
+          )}
+        </div>
       )}
       <div className="flex flex-wrap items-center gap-2 pb-2">
         <div className="flex border border-rule">

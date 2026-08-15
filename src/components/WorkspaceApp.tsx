@@ -409,6 +409,23 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
     }
   }
 
+  function onUnarchive(id: string) {
+    if (!send({ type: "unarchive_thread", threadId: id })) {
+      flash("The room is reconnecting. The thread was not restored.");
+      return;
+    }
+    awaitingCreateRef.current = false;
+    selectedRef.current = id;
+    setDraftThread(false);
+    setSelectedId(id);
+    setShowArchived(false);
+    setThreads((prev) =>
+      prev.map((t) =>
+        t.id === id && t.status === "archived" ? { ...t, status: "idle" } : t,
+      ),
+    );
+  }
+
   if (loadError) {
     return (
       <main className="grid min-h-full place-items-center px-6">
@@ -460,6 +477,7 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
                 flash("The room is reconnecting. The thread was not archived.");
               }
             }}
+            onUnarchive={onUnarchive}
             onDelete={(id) => {
               if (!send({ type: "delete_thread", threadId: id })) {
                 flash("The room is reconnecting. The thread was not deleted.");
@@ -491,6 +509,11 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
             onModel={setModel}
             onSend={onSend}
             onCancel={onCancel}
+            onRestore={
+              selected?.status === "archived"
+                ? () => onUnarchive(selected.id)
+                : undefined
+            }
           />
         </section>
       </div>

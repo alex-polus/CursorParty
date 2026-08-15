@@ -8,7 +8,34 @@ The multiplayer workspace for engineers and agents.
 
 v1 is a **shared Agent View** over a GitHub repo — not a cloud IDE. Engineers still write code in Cursor. CursorParty is the room where the team watches and drives Cursor cloud agents together.
 
-**Happy path:** open the app → create or open a workspace (repo + branch) → pick a name → see who’s online → start a thread → everyone watches the stream → follow up / cancel / archive → late joiners replay history.
+**Happy path:** open the app → create or open a workspace (repo + branch) → pick a name → see who’s online → start a thread → everyone watches the stream → follow up / cancel / archive / restore → late joiners replay history.
+
+> ⚠️ **Security:** there is no login. **Anyone with a workspace URL can start agents and spend your `CURSOR_API_KEY`.** Treat invite links like the API key itself. Only share within a trusted group and revoke the key if a link leaks.
+
+## Preview
+
+<!-- Add screenshots / GIFs of the Agent View, thread streaming, and presence here. -->
+<p align="center">
+  <em>Screenshots and demo GIFs coming soon.</em>
+</p>
+
+## Quickstart
+
+```bash
+pnpm install
+cp .env.example .env         # set CURSOR_API_KEY at minimum
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000), create a room, pick a name, send a prompt with `⌘/Ctrl+Enter`. See [Run](#run) for production, GitHub setup, and sharing on a LAN or tunnel.
+
+## Use cases
+
+- **War room / incident response** — pile into a workspace during an outage; one dev drives the agent while the rest watch the stream, chime in, or cancel and redirect.
+- **Shared skill / team knowledge** — a prompt + agent run becomes a replayable session the whole team learns from; late joiners scroll back through the full transcript.
+- **Pair with an agent** — two devs co-drive a single run, taking turns on follow-ups instead of forking into separate transcripts.
+- **Onboarding** — new hires watch senior devs prompt agents on the real repo, then replay past threads to learn the codebase and the team’s prompting style.
+- **Technical interviews** — interviewer and candidate share a room; discuss approach as the candidate drives the agent through a task, with a full transcript for later review.
 
 ## What’s implemented (v1)
 
@@ -32,7 +59,7 @@ This matches the v1 plan: a local-first, production-quality demo for 2–4 peopl
 
 - Threads backed by `@cursor/sdk` **cloud** agents (`Agent.create` / `Agent.resume` / `send` / `stream` / `wait`).
 - Live shared streaming over WebSocket: assistant text, thinking, tool-call start/complete, and status. Events are persisted to SQLite before broadcast, so a refresh or late join replays history.
-- Follow-up on the same thread, cancel, plan vs agent mode, model picker (`Cursor.models.list()`), archive, and delete (with confirm).
+- Follow-up on the same thread, cancel, plan vs agent mode, model picker (`Cursor.models.list()`), archive, restore, and delete (with confirm).
 - Git branch / PR URL chip when the SDK returns git metadata. No in-app diff viewer.
 - Auto-titled threads from the first prompt.
 - Collapsible tool-call cards (name + status; args/result parsed defensively).
@@ -56,9 +83,25 @@ This matches the v1 plan: a local-first, production-quality demo for 2–4 peopl
 - Multi-repo or no-repo workspaces
 - Production deploy, hosted Turso, billing dashboard
 
+### What's next
+
+Near-term direction, in rough priority order. Nothing here is committed — this is where the product is heading, not a shipping schedule.
+
+- **Guest auth + per-user API keys** so an invite link stops equaling full spend on the host's key.
+- **One-click "open PR"** from a finished run, using the git metadata the SDK already returns.
+- **Parallel agents per workspace** so a room isn't blocked on a single run.
+- **MCP / subagent configuration UI** for teams that want to customize what the cloud agent can call.
+- **Hosted deploy** (managed CursorParty rooms with proper auth and quotas) once the local demo hardens.
+
 ## How it works
 
-A custom Node HTTP server (`server.ts`) hosts Next.js, REST, and a WebSocket hub on one port.
+A single long-lived Node process (`server.ts`) hosts Next.js, REST, and a WebSocket hub on one port. SQLite is the source of truth for workspaces, guests, threads, runs, and messages. Presence is in-memory on the WebSocket hub.
+
+```
+Browser  →  Next.js UI + REST (first paint)
+         →  WebSocket room (presence, stream, controls)
+Node     →  SQLite  +  @cursor/sdk cloud agents  →  GitHub repo
+```
 
 1. Someone creates a workspace pointed at a GitHub repo already connected to Cursor.
 2. Guests pick a display name. Identity is an HttpOnly `cp_guest` cookie — name and color stick on that browser.
@@ -174,16 +217,6 @@ and relevant workspace/thread/run/request IDs. HTTP responses include an
 causes, and common SDK/HTTP error metadata while fields that look like secrets,
 tokens, authorization values, or cookies are redacted.
 
-## Architecture (v1)
-
-A single long-lived Node process (custom `server.ts`) serves Next.js, REST, WebSockets, and the Cursor SDK together. SQLite is the source of truth for workspaces, guests, threads, runs, and messages. Presence is in-memory on the WebSocket hub.
-
-```
-Browser  →  Next.js UI + REST (first paint)
-         →  WebSocket room (presence, stream, controls)
-Node     →  SQLite  +  @cursor/sdk cloud agents  →  GitHub repo
-```
-
 ## Scripts
 
 | Script | What it does |
@@ -206,13 +239,22 @@ src/lib/sdk/orchestrator.ts  Cursor Agent.create / send / stream / cancel
 src/lib/db/            SQLite schema, queries, seed
 ```
 
-REST is for bootstrap (create room, claim guest, replay history). Live control is WebSocket: `create_thread`, `prompt`, `cancel`, `archive_thread`, `delete_thread`, `viewing`.
+REST is for bootstrap (create room, claim guest, replay history). Live control is WebSocket: `create_thread`, `prompt`, `cancel`, `archive_thread`, `unarchive_thread`, `delete_thread`, `viewing`.
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `@cursor/sdk` fails to load on boot | Node < 22.13. Upgrade the runtime. |
+| Workspace create rejects the repo URL | The Cursor GitHub App is not connected to that repo on your account. Connect it in the Cursor dashboard, then retry. |
+| REST works but the transcript never streams | You started with `pnpm next dev`. Use `pnpm dev` so the custom `server.ts` runs REST and WebSocket on the same port. |
+| Can't find the running agent in Cursor | SDK-created agents are hidden by default. In the Agents window, apply **Filter → Source → SDK**. |
+| `/w/default` points at the wrong repo | It was seeded on an earlier boot from `CURSOR_PARTY_REPO_URL`. Create a fresh workspace from the home page instead. |
+| Guest lost their name / color | Cookies were cleared. A new guest identity is created; the old name stays in history. |
 
 ## Caveats
 
-- Treat the invite URL like the API key. There is no login and no per-guest spend limit.
 - Repo validation uses `Cursor.repositories.list`. Connect the GitHub repo on that Cursor account before creating a workspace.
 - SDK/API agents require **Privacy Mode** (storage enabled). **Privacy Mode (Legacy)** returns `Storage mode is disabled` — switch in [Cursor settings](https://cursor.com/settings).
 - If the process restarts mid-run, the orchestrator rehydrates active SDK runs on boot.
-- Clearing cookies creates a new guest identity; the old name stays in history.
-- `pnpm next dev` alone is not enough — use `pnpm dev` so REST and WebSocket share the same server.
+- No per-guest spend limit — every operator draws from the same `CURSOR_API_KEY`.

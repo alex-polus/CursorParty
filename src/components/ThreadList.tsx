@@ -12,6 +12,7 @@ export function ThreadList({
   onSelect,
   onNew,
   onArchive,
+  onUnarchive,
   onDelete,
   onToggleArchived,
 }: {
@@ -23,6 +24,7 @@ export function ThreadList({
   onSelect: (id: string) => void;
   onNew: () => void;
   onArchive: (id: string) => void;
+  onUnarchive: (id: string) => void;
   onDelete: (id: string) => void;
   onToggleArchived: () => void;
 }) {
@@ -104,7 +106,14 @@ export function ThreadList({
                   </p>
                 </button>
                 <div className="flex flex-col gap-1 sm:hidden sm:group-hover:flex">
-                  {thread.status !== "archived" && (
+                  {thread.status === "archived" ? (
+                    <button
+                      onClick={() => onUnarchive(thread.id)}
+                      className="text-[10px] uppercase tracking-wider text-mute hover:text-paper"
+                    >
+                      Restore
+                    </button>
+                  ) : (
                     <button
                       onClick={() => onArchive(thread.id)}
                       className="text-[10px] uppercase tracking-wider text-mute hover:text-paper"
