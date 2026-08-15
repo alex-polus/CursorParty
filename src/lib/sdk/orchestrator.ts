@@ -24,6 +24,7 @@ import type {
   BusyState,
   MessageDTO,
   ModelDTO,
+  ModelParamDTO,
   ServerMessage,
   ThreadDTO,
 } from "../types";
@@ -31,6 +32,10 @@ import type {
 export type Broadcast = (workspaceId: string, message: ServerMessage) => void;
 
 const log = createLogger("orchestrator");
+
+function modelSelection(id: string, params: ModelParamDTO[]) {
+  return { id, ...(params.length ? { params } : {}) };
+}
 
 export class WorkspaceBusyError extends Error {
   constructor(public busy: BusyState) {
@@ -103,13 +108,50 @@ export class Orchestrator {
   async listModels(): Promise<ModelDTO[]> {
     const key = cursorApiKey();
     if (!key) {
-      return [{ id: "composer-2.5", displayName: "Composer 2.5" }];
+      return [
+        {
+          id: "composer-2.5",
+          displayName: "Composer 2.5",
+          parameters: [
+            {
+              id: "fast",
+              displayName: "Fast",
+              values: [
+                { value: "false", displayName: "Off" },
+                { value: "true", displayName: "On" },
+              ],
+            },
+          ],
+          defaultParams: [{ id: "fast", value: "true" }],
+          variants: [
+            [{ id: "fast", value: "true" }],
+            [{ id: "fast", value: "false" }],
+          ],
+        },
+      ];
     }
     try {
       const models = await Cursor.models.list({ apiKey: key });
       return models.map((m) => ({
         id: m.id,
         displayName: m.displayName || m.id,
+        parameters: (m.parameters ?? []).map((parameter) => ({
+          id: parameter.id,
+          displayName: parameter.displayName || parameter.id,
+          values: parameter.values.map((value) => ({
+            value: value.value,
+            displayName:
+              value.displayName ||
+              (value.value === "true"
+                ? "On"
+                : value.value === "false"
+                  ? "Off"
+                  : value.value),
+          })),
+        })),
+        defaultParams:
+          m.variants?.find((variant) => variant.isDefault)?.params ?? [],
+        variants: (m.variants ?? []).map((variant) => variant.params),
       }));
     } catch (err) {
       log.warn("models.list_failed", {
@@ -117,8 +159,20 @@ export class Orchestrator {
         fallbackModels: ["composer-2.5", "auto"],
       });
       return [
-        { id: "composer-2.5", displayName: "Composer 2.5" },
-        { id: "auto", displayName: "Auto" },
+        {
+          id: "composer-2.5",
+          displayName: "Composer 2.5",
+          parameters: [],
+          defaultParams: [],
+          variants: [],
+        },
+        {
+          id: "auto",
+          displayName: "Auto",
+          parameters: [],
+          defaultParams: [],
+          variants: [],
+        },
       ];
     }
   }
@@ -198,6 +252,7 @@ export class Orchestrator {
     text: string;
     mode: AgentMode;
     model: string;
+    modelParams: ModelParamDTO[];
   }): Promise<ThreadDTO> {
     const text = opts.text.trim();
     if (!text) throw new Error("Prompt is empty.");
@@ -279,6 +334,7 @@ export class Orchestrator {
         guestId: opts.guestId,
         mode: opts.mode,
         model: opts.model,
+        modelParams: opts.modelParams,
         isNewThread: !opts.threadId,
         promptLength: text.length,
       });
@@ -322,6 +378,7 @@ export class Orchestrator {
         text,
         mode: opts.mode,
         model: opts.model,
+        modelParams: opts.modelParams,
         repoUrl: ws.repoUrl,
         startingRef: ws.startingRef,
       });
@@ -499,6 +556,7 @@ export class Orchestrator {
     text: string;
     mode: AgentMode;
     model: string;
+    modelParams: ModelParamDTO[];
     repoUrl: string;
     startingRef: string;
   }) {
@@ -521,7 +579,7 @@ export class Orchestrator {
           });
           agent = await Agent.resume(threadRow.cursorAgentId, {
             apiKey,
-            model: { id: opts.model },
+            model: modelSelection(opts.model, opts.modelParams),
             mode: opts.mode,
           });
         } else {
@@ -537,7 +595,7 @@ export class Orchestrator {
           agent = await Agent.create({
             apiKey,
             name: threadRow?.title ?? titleFromPrompt(opts.text),
-            model: { id: opts.model },
+            model: modelSelection(opts.model, opts.modelParams),
             mode: opts.mode,
             cloud: {
               repos: [
@@ -564,7 +622,7 @@ export class Orchestrator {
 
       const run = await agent.send(opts.text, {
         mode: opts.mode,
-        model: { id: opts.model },
+        model: modelSelection(opts.model, opts.modelParams),
         onDelta: ({ update }) => {
           if (update.type === "text-delta" && update.text) {
             this.broadcast(opts.workspaceId, {

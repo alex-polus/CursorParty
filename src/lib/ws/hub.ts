@@ -238,6 +238,7 @@ export class Hub {
             text: msg.text,
             mode: msg.mode,
             model: msg.model,
+            modelParams: msg.modelParams,
           });
           break;
         case "prompt":
@@ -248,6 +249,7 @@ export class Hub {
             text: msg.text,
             mode: msg.mode,
             model: msg.model,
+            modelParams: msg.modelParams,
           });
           break;
         case "cancel":
@@ -354,6 +356,15 @@ function isPromptFields(message: Record<string, unknown>): boolean {
   return (
     typeof message.text === "string" &&
     (message.mode === "agent" || message.mode === "plan") &&
-    typeof message.model === "string"
+    typeof message.model === "string" &&
+    Array.isArray(message.modelParams) &&
+    message.modelParams.length <= 16 &&
+    message.modelParams.every(
+      (param) =>
+        Boolean(param) &&
+        typeof param === "object" &&
+        typeof (param as Record<string, unknown>).id === "string" &&
+        typeof (param as Record<string, unknown>).value === "string",
+    )
   );
 }
