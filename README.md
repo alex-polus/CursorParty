@@ -52,14 +52,37 @@ This matches the v1 plan: a local-first, production-quality demo for 2–4 peopl
 - Multi-repo or no-repo workspaces
 - Production deploy, hosted Turso, billing dashboard
 
+## How it works
+
+A custom Node HTTP server (`server.ts`) hosts Next.js, REST, and a WebSocket hub on one port.
+
+1. Someone creates a workspace pointed at a GitHub repo already connected to Cursor.
+2. Guests pick a display name. Identity is an HttpOnly `cp_guest` cookie — name and color stick on that browser.
+3. Prompts go over WebSocket (`/ws?workspaceId=…`). The orchestrator creates or resumes a Cursor cloud agent via `@cursor/sdk`, streams events into SQLite, and fans them out to everyone in the room.
+4. A workspace mutex blocks a second run while one agent is already going. Anyone can cancel.
+
+Cloud agents clone the repo into an isolated VM. CursorParty never edits local files.
+
+SDK-created agents are hidden in Cursor’s default agent list. In the Cursor app or web Agents window, use **Filter → Source → SDK**.
+
+## Stack
+
+| Layer | Choice |
+|---|---|
+| UI | Next.js 16, React 19, Tailwind CSS 4 |
+| Server | Node custom HTTP + `ws` |
+| Agents | [Cursor SDK](https://cursor.com/docs/sdk/typescript) cloud runtime |
+| Data | SQLite via libsql + Drizzle |
+
+Schema is created on boot (`src/lib/db/ensure.ts`). SQLite lives in `./data/` and is gitignored.
+
 ## Requirements
 
 - **Node.js 22.13+** (the Cursor SDK will not load on older runtimes)
+- **pnpm**
 - A [Cursor API key](https://cursor.com/dashboard/api) (`CURSOR_API_KEY`)
 - The GitHub repo must already be **connected** to that Cursor account / team (Cursor GitHub App)
 - Anyone with the workspace URL can start agents and **spend that API key**
-
-SDK-created cloud agents are hidden in Cursor’s default agent list. In the Cursor app or web Agents window, use **Filter → Source → SDK**.
 
 ## Run
 
@@ -72,7 +95,16 @@ pnpm install
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Create a room, pick a name, send a prompt.
+Open [http://localhost:3000](http://localhost:3000). Create a room, pick a name, send a prompt (`⌘/Ctrl+Enter`).
+
+If `CURSOR_PARTY_REPO_URL` is set, boot seeds a workspace with id `default`.
+
+### Production (same machine)
+
+```bash
+pnpm build
+pnpm start
+```
 
 ### Connect a GitHub repo
 
@@ -114,8 +146,6 @@ and relevant workspace/thread/run/request IDs. HTTP responses include an
 causes, and common SDK/HTTP error metadata while fields that look like secrets,
 tokens, authorization values, or cookies are redacted.
 
-SQLite lives in `./data/` and is gitignored.
-
 ## Architecture (v1)
 
 A single long-lived Node process (custom `server.ts`) serves Next.js, REST, WebSockets, and the Cursor SDK together. SQLite is the source of truth for workspaces, guests, threads, runs, and messages. Presence is in-memory on the WebSocket hub.
@@ -125,3 +155,35 @@ Browser  →  Next.js UI + REST (first paint)
          →  WebSocket room (presence, stream, controls)
 Node     →  SQLite  +  @cursor/sdk cloud agents  →  GitHub repo
 ```
+
+## Scripts
+
+| Script | What it does |
+|---|---|
+| `pnpm dev` | Watch-reload the custom server |
+| `pnpm build` / `pnpm start` | Production Next.js build, then serve |
+| `pnpm lint` | ESLint |
+| `pnpm db:generate` | Drizzle kit generate |
+| `pnpm db:migrate` | Apply Drizzle migrations (boot already `CREATE TABLE IF NOT EXISTS`) |
+
+## Layout
+
+```
+server.ts              HTTP + WebSocket entry
+src/app/               Next.js pages (home, /w/[id])
+src/components/        Agent View UI
+src/lib/http/api.ts    REST (workspaces, guests, threads, health)
+src/lib/ws/hub.ts      Presence + client commands
+src/lib/sdk/orchestrator.ts  Cursor Agent.create / send / stream / cancel
+src/lib/db/            SQLite schema, queries, seed
+```
+
+REST is for bootstrap (create room, claim guest, replay history). Live control is WebSocket: `create_thread`, `prompt`, `cancel`, `archive_thread`, `delete_thread`, `viewing`.
+
+## Caveats
+
+- Treat the invite URL like the API key. There is no login and no per-guest spend limit.
+- Repo validation uses `Cursor.repositories.list`. Connect the GitHub repo on that Cursor account before creating a workspace.
+- If the process restarts mid-run, the orchestrator rehydrates active SDK runs on boot.
+- Clearing cookies creates a new guest identity; the old name stays in history.
+- `pnpm next dev` alone is not enough — use `pnpm dev` so REST and WebSocket share the same server.
