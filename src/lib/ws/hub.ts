@@ -256,6 +256,9 @@ export class Hub {
         case "archive_thread":
           await this.orchestrator.archive(meta.workspaceId, msg.threadId);
           break;
+        case "unarchive_thread":
+          await this.orchestrator.unarchive(meta.workspaceId, msg.threadId);
+          break;
         case "delete_thread":
           await this.orchestrator.delete(meta.workspaceId, msg.threadId);
           break;
@@ -339,6 +342,7 @@ function isClientMessage(value: unknown): value is ClientMessage {
       return typeof message.threadId === "string" && isPromptFields(message);
     case "cancel":
     case "archive_thread":
+    case "unarchive_thread":
     case "delete_thread":
       return typeof message.threadId === "string";
     default:

@@ -102,6 +102,7 @@ export type ClientMessage =
     }
   | { type: "cancel"; threadId: string }
   | { type: "archive_thread"; threadId: string }
+  | { type: "unarchive_thread"; threadId: string }
   | { type: "delete_thread"; threadId: string };
 
 export type ServerMessage =
