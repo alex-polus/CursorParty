@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="CursorParty logo" width="200" />
+</p>
+
 # CursorParty
 
 The multiplayer workspace for engineers and agents.
