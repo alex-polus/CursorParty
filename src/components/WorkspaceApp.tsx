@@ -46,6 +46,7 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
   const [connected, setConnected] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [draftThread, setDraftThread] = useState(false);
+  const [composerFocusSignal, setComposerFocusSignal] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
   const selectedRef = useRef<string | null>(null);
@@ -345,10 +346,14 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
   function onNew() {
     awaitingCreateRef.current = false;
     selectedRef.current = null;
+    setShowArchived(false);
     setDraftThread(true);
     setSelectedId(null);
     setMessages([]);
+    setLiveText("");
+    setLiveThinking("");
     setText("");
+    setComposerFocusSignal((n) => n + 1);
   }
 
   useEffect(() => {
@@ -438,6 +443,7 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
             selectedId={draftThread ? null : selectedId}
             presence={presence}
             showArchived={showArchived}
+            drafting={draftThread}
             onSelect={(id) => {
               awaitingCreateRef.current = false;
               selectedRef.current = id;
@@ -466,6 +472,7 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
             liveText={liveText}
             liveThinking={liveThinking}
             selfId={me?.id ?? null}
+            drafting={draftThread}
           />
           <Composer
             text={text}
@@ -474,6 +481,7 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
             models={models}
             busy={busy}
             disabledReason={disabledReason}
+            focusSignal={composerFocusSignal}
             onText={setText}
             onMode={setMode}
             onModel={setModel}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { AgentMode, BusyState, ModelDTO } from "@/lib/types";
 
 export function Composer({
@@ -10,6 +10,7 @@ export function Composer({
   models,
   busy,
   disabledReason,
+  focusSignal,
   onText,
   onMode,
   onModel,
@@ -22,6 +23,7 @@ export function Composer({
   models: ModelDTO[];
   busy: BusyState | null;
   disabledReason: string | null;
+  focusSignal: number;
   onText: (value: string) => void;
   onMode: (mode: AgentMode) => void;
   onModel: (model: string) => void;
@@ -30,6 +32,11 @@ export function Composer({
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const blocked = Boolean(disabledReason);
+
+  useEffect(() => {
+    if (focusSignal === 0) return;
+    ref.current?.focus();
+  }, [focusSignal]);
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -63,9 +70,8 @@ export function Composer({
             <button
               key={m}
               onClick={() => onMode(m)}
-              className={`px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] ${
-                mode === m ? "bg-paper text-ink" : "text-mute hover:text-paper"
-              }`}
+              className={`px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] ${mode === m ? "bg-paper text-ink" : "text-mute hover:text-paper"
+                }`}
             >
               {m}
             </button>
