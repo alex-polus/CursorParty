@@ -2,6 +2,9 @@ import { eq } from "drizzle-orm";
 import { db } from "./client";
 import { workspaces } from "./schema";
 import { nid, now } from "../ids";
+import { createLogger } from "../logging";
+
+const log = createLogger("database");
 
 export async function seedDefaultWorkspace() {
   const repoUrl = process.env.CURSOR_PARTY_REPO_URL?.trim();
@@ -23,7 +26,7 @@ export async function seedDefaultWorkspace() {
     createdAt: now(),
   });
 
-  console.log(`[cursorparty] seeded default workspace from ${repoUrl}`);
+  log.info("workspace.seeded", { workspaceId: "default", repoUrl });
 }
 
 export { nid };

@@ -19,8 +19,20 @@ import {
 import { colorForIndex } from "../colors";
 import { cursorApiKey } from "../env";
 import { nid, now } from "../ids";
-import { GUEST_COOKIE, parseCookies, serializeCookie } from "./cookies";
+import { createLogger } from "../logging";
+import {
+  GUEST_COOKIE,
+  guestCookieName,
+  parseCookies,
+  serializeCookie,
+} from "./cookies";
+import {
+  isFormSubmission,
+  parseWorkspaceCreateInput,
+} from "./workspace-input";
 import type { Orchestrator } from "../sdk/orchestrator";
+
+const log = createLogger("api");
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -54,6 +66,14 @@ function notFound(res: ServerResponse) {
   json(res, 404, { error: "Not found" });
 }
 
+function redirect(res: ServerResponse, location: string) {
+  res.writeHead(303, {
+    Location: location,
+    "Cache-Control": "no-store",
+  });
+  res.end();
+}
+
 function normalizeRepo(url: string) {
   return url.trim().replace(/\.git$/i, "").replace(/\/$/, "").toLowerCase();
 }
@@ -77,8 +97,13 @@ async function validateRepo(repoUrl: string): Promise<{ ok: true } | { ok: false
     return { ok: true };
   } catch (err) {
     if (err instanceof IntegrationNotConnectedError) {
+      log.warn("repository.integration_not_connected", {
+        repoUrl,
+        error: err,
+      });
       return { ok: false, error: err.message, helpUrl: err.helpUrl };
     }
+    log.error("repository.validation_failed", err, { repoUrl });
     return { ok: true };
   }
 }
@@ -94,6 +119,19 @@ export async function handleApi(
 
   const method = req.method ?? "GET";
   const path = url.pathname.replace(/\/$/, "") || "/";
+  const requestId = String(req.headers["x-request-id"] ?? "unknown");
+  const startedAt = performance.now();
+
+  log.debug("request.started", { requestId, method, path });
+  res.once("finish", () => {
+    log.info("request.completed", {
+      requestId,
+      method,
+      path,
+      statusCode: res.statusCode,
+      durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+    });
+  });
 
   try {
     if (method === "GET" && path === "/api/health") {
@@ -122,11 +160,22 @@ export async function handleApi(
     }
 
     if (method === "POST" && path === "/api/workspaces") {
-      const body = await readJson<{
-        name?: string;
-        repoUrl?: string;
-        startingRef?: string;
-      }>(req);
+      const contentType = req.headers["content-type"];
+      const nativeForm = isFormSubmission(contentType);
+      let body;
+      try {
+        body = parseWorkspaceCreateInput(await readBody(req), contentType);
+      } catch (err) {
+        log.warn("request.invalid_body", {
+          requestId,
+          method,
+          path,
+          contentType,
+          error: err,
+        });
+        json(res, 400, { error: "Invalid request body" });
+        return true;
+      }
       const repoUrl = body.repoUrl?.trim();
       const startingRef = body.startingRef?.trim() || "main";
       if (!repoUrl) {
@@ -150,7 +199,11 @@ export async function handleApi(
         startingRef,
         createdAt: now(),
       });
-      json(res, 201, { workspace: await getWorkspace(id) });
+      if (nativeForm) {
+        redirect(res, `/w/${encodeURIComponent(id)}`);
+      } else {
+        json(res, 201, { workspace: await getWorkspace(id) });
+      }
       return true;
     }
 
@@ -162,7 +215,8 @@ export async function handleApi(
         return true;
       }
       const cookies = parseCookies(req.headers.cookie);
-      const guestId = cookies[GUEST_COOKIE];
+      const guestId =
+        cookies[guestCookieName(workspace.id)] ?? cookies[GUEST_COOKIE];
       const me = guestId
         ? await getGuestInWorkspace(guestId, workspace.id)
         : null;
@@ -181,7 +235,19 @@ export async function handleApi(
         notFound(res);
         return true;
       }
-      const body = await readJson<{ displayName?: string }>(req);
+      let body: { displayName?: string };
+      try {
+        body = await readJson<{ displayName?: string }>(req);
+      } catch (err) {
+        log.warn("request.invalid_body", {
+          requestId,
+          method,
+          path,
+          error: err,
+        });
+        json(res, 400, { error: "Invalid request body" });
+        return true;
+      }
       const displayName = body.displayName?.trim();
       if (!displayName || displayName.length > 32) {
         json(res, 400, { error: "Display name must be 1–32 characters." });
@@ -189,7 +255,8 @@ export async function handleApi(
       }
 
       const cookies = parseCookies(req.headers.cookie);
-      const existingId = cookies[GUEST_COOKIE];
+      const workspaceCookie = guestCookieName(workspace.id);
+      const existingId = cookies[workspaceCookie] ?? cookies[GUEST_COOKIE];
       const existing = existingId
         ? await getGuestInWorkspace(existingId, workspace.id)
         : null;
@@ -200,7 +267,12 @@ export async function handleApi(
           .set({ displayName, lastSeenAt: now() })
           .where(eq(guests.id, existing.id));
         const me = await getGuest(existing.id);
-        json(res, 200, { guest: me });
+        json(
+          res,
+          200,
+          { guest: me },
+          { "Set-Cookie": serializeCookie(workspaceCookie, existing.id) },
+        );
         return true;
       }
 
@@ -227,7 +299,7 @@ export async function handleApi(
         color,
         createdAt: t,
         lastSeenAt: t,
-      }) }, { "Set-Cookie": serializeCookie(GUEST_COOKIE, id) });
+      }) }, { "Set-Cookie": serializeCookie(workspaceCookie, id) });
       return true;
     }
 
@@ -267,10 +339,20 @@ export async function handleApi(
     notFound(res);
     return true;
   } catch (err) {
-    console.error("[cursorparty] api", err);
-    json(res, 500, {
-      error: err instanceof Error ? err.message : "Server error",
+    log.error("request.failed", err, {
+      requestId,
+      method,
+      path,
+      statusCode: 500,
+      headersSent: res.headersSent,
     });
+    if (!res.headersSent) {
+      json(res, 500, {
+        error: err instanceof Error ? err.message : "Server error",
+      });
+    } else {
+      res.end();
+    }
     return true;
   }
 }

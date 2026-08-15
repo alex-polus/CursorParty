@@ -8,6 +8,9 @@ import type {
   ThreadDTO,
   WorkspaceDTO,
 } from "../types";
+import { createLogger } from "../logging";
+
+const log = createLogger("database");
 
 export function toWorkspace(row: typeof workspaces.$inferSelect): WorkspaceDTO {
   return {
@@ -65,7 +68,13 @@ export function toMessage(
   let payload: Record<string, unknown> = {};
   try {
     payload = JSON.parse(row.payloadJson) as Record<string, unknown>;
-  } catch {
+  } catch (err) {
+    log.error("message.invalid_payload_json", err, {
+      messageId: row.id,
+      threadId: row.threadId,
+      runId: row.runId,
+      payloadBytes: Buffer.byteLength(row.payloadJson),
+    });
     payload = { raw: row.payloadJson };
   }
   return {

@@ -78,7 +78,7 @@ export function ThreadList({
                     {thread.title}
                   </p>
                 </button>
-                <div className="hidden flex-col gap-1 group-hover:flex">
+                <div className="flex flex-col gap-1 sm:hidden sm:group-hover:flex">
                   {thread.status !== "archived" && (
                     <button
                       onClick={() => onArchive(thread.id)}

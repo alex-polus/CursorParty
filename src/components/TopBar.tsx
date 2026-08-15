@@ -16,7 +16,24 @@ export function TopBar({
   const repo = workspace.repoUrl.replace(/^https?:\/\/github\.com\//, "");
 
   async function copyInvite() {
-    await navigator.clipboard.writeText(window.location.href);
+    const invite = window.location.href;
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard unavailable");
+      }
+      await navigator.clipboard.writeText(invite);
+    } catch {
+      const input = document.createElement("textarea");
+      input.value = invite;
+      input.setAttribute("readonly", "");
+      input.style.position = "fixed";
+      input.style.opacity = "0";
+      document.body.appendChild(input);
+      input.select();
+      const copied = document.execCommand("copy");
+      input.remove();
+      if (!copied) return;
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   }

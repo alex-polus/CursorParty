@@ -18,6 +18,7 @@ import {
 } from "../db/queries";
 import { cursorApiKey } from "../env";
 import { nid, now } from "../ids";
+import { createLogger } from "../logging";
 import type {
   AgentMode,
   BusyState,
@@ -28,6 +29,8 @@ import type {
 } from "../types";
 
 export type Broadcast = (workspaceId: string, message: ServerMessage) => void;
+
+const log = createLogger("orchestrator");
 
 export class WorkspaceBusyError extends Error {
   constructor(public busy: BusyState) {
@@ -88,6 +91,8 @@ export class Orchestrator {
   private agents = new Map<string, SDKAgent>();
   private activeRuns = new Map<string, Run>();
   private busy = new Map<string, BusyState>();
+  private startingWorkspaces = new Set<string>();
+  private pendingCancels = new Set<string>();
 
   constructor(private broadcast: Broadcast) {}
 
@@ -106,7 +111,11 @@ export class Orchestrator {
         id: m.id,
         displayName: m.displayName || m.id,
       }));
-    } catch {
+    } catch (err) {
+      log.warn("models.list_failed", {
+        error: err,
+        fallbackModels: ["composer-2.5", "auto"],
+      });
       return [
         { id: "composer-2.5", displayName: "Composer 2.5" },
         { id: "auto", displayName: "Auto" },
@@ -122,6 +131,10 @@ export class Orchestrator {
 
     for (const row of running) {
       if (!row.cursorAgentId) {
+        log.warn("rehydrate.missing_agent_id", {
+          workspaceId: row.workspaceId,
+          threadId: row.id,
+        });
         await this.markThread(row.id, "error");
         continue;
       }
@@ -137,6 +150,11 @@ export class Orchestrator {
           .limit(1);
 
         if (!runRow?.cursorRunId) {
+          log.warn("rehydrate.missing_run_id", {
+            workspaceId: row.workspaceId,
+            threadId: row.id,
+            runId: runRow?.id,
+          });
           await this.markThread(row.id, "idle");
           continue;
         }
@@ -154,9 +172,20 @@ export class Orchestrator {
           guestName: guest?.displayName ?? "Someone",
         });
         this.activeRuns.set(row.id, run);
+        log.info("rehydrate.succeeded", {
+          workspaceId: row.workspaceId,
+          threadId: row.id,
+          runId: runRow.id,
+          cursorAgentId: row.cursorAgentId,
+          cursorRunId: runRow.cursorRunId,
+        });
         void this.pump(row.workspaceId, row.id, runRow.id, run);
       } catch (err) {
-        console.error("[cursorparty] rehydrate failed", row.id, err);
+        log.error("rehydrate.failed", err, {
+          workspaceId: row.workspaceId,
+          threadId: row.id,
+          cursorAgentId: row.cursorAgentId,
+        });
         await this.markThread(row.id, "error");
       }
     }
@@ -175,111 +204,172 @@ export class Orchestrator {
 
     const existing = this.busy.get(opts.workspaceId);
     if (existing) throw new WorkspaceBusyError(existing);
-
-    const guest = await getGuest(opts.guestId);
-    if (!guest || guest.workspaceId !== opts.workspaceId) {
-      throw new Error("Unknown guest.");
+    if (this.startingWorkspaces.has(opts.workspaceId)) {
+      throw new Error("An agent is already starting in this workspace.");
     }
-
-    const [ws] = await db
-      .select()
-      .from(workspaces)
-      .where(eq(workspaces.id, opts.workspaceId))
-      .limit(1);
-    if (!ws) throw new Error("Workspace not found.");
+    this.startingWorkspaces.add(opts.workspaceId);
 
     let threadId = opts.threadId;
-    const t = now();
+    let markedRunning = false;
+    let busyClaimed = false;
+    let launched = false;
 
-    if (!threadId) {
-      threadId = nid(12);
-      await db.insert(threads).values({
-        id: threadId,
-        workspaceId: opts.workspaceId,
-        cursorAgentId: null,
-        title: titleFromPrompt(text),
-        status: "running",
-        mode: opts.mode,
-        model: opts.model,
-        createdByGuestId: opts.guestId,
-        gitBranch: null,
-        gitPrUrl: null,
-        createdAt: t,
-        updatedAt: t,
-      });
-    } else {
-      const thread = await getThread(threadId);
-      if (!thread || thread.workspaceId !== opts.workspaceId) {
-        throw new Error("Thread not found.");
+    try {
+      const guest = await getGuest(opts.guestId);
+      if (!guest || guest.workspaceId !== opts.workspaceId) {
+        throw new Error("Unknown guest.");
       }
-      if (thread.status === "archived") {
-        throw new Error("This thread is archived.");
-      }
-      await db
-        .update(threads)
-        .set({
+
+      const [ws] = await db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, opts.workspaceId))
+        .limit(1);
+      if (!ws) throw new Error("Workspace not found.");
+
+      const t = now();
+
+      if (!threadId) {
+        threadId = nid(12);
+        await db.insert(threads).values({
+          id: threadId,
+          workspaceId: opts.workspaceId,
+          cursorAgentId: null,
+          title: titleFromPrompt(text),
           status: "running",
           mode: opts.mode,
           model: opts.model,
+          createdByGuestId: opts.guestId,
+          gitBranch: null,
+          gitPrUrl: null,
+          createdAt: t,
           updatedAt: t,
-        })
-        .where(eq(threads.id, threadId));
+        });
+        markedRunning = true;
+      } else {
+        const thread = await getThread(threadId);
+        if (!thread || thread.workspaceId !== opts.workspaceId) {
+          throw new Error("Thread not found.");
+        }
+        if (thread.status === "archived") {
+          throw new Error("This thread is archived.");
+        }
+        await db
+          .update(threads)
+          .set({
+            status: "running",
+            mode: opts.mode,
+            model: opts.model,
+            updatedAt: t,
+          })
+          .where(eq(threads.id, threadId));
+        markedRunning = true;
+      }
+
+      const busy: BusyState = {
+        threadId,
+        guestId: opts.guestId,
+        guestName: guest.displayName,
+      };
+      this.busy.set(opts.workspaceId, busy);
+      busyClaimed = true;
+      log.info("prompt.accepted", {
+        workspaceId: opts.workspaceId,
+        threadId,
+        guestId: opts.guestId,
+        mode: opts.mode,
+        model: opts.model,
+        isNewThread: !opts.threadId,
+        promptLength: text.length,
+      });
+      this.broadcast(opts.workspaceId, { type: "workspace_busy", busy });
+
+      const thread = await getThread(threadId);
+      if (thread) {
+        this.broadcast(opts.workspaceId, { type: "thread_upsert", thread });
+      }
+
+      const runId = nid(12);
+      await db.insert(runs).values({
+        id: runId,
+        threadId,
+        cursorRunId: null,
+        status: "running",
+        startedByGuestId: opts.guestId,
+        error: null,
+        createdAt: t,
+        finishedAt: null,
+      });
+
+      const userMessage = await this.persistMessage({
+        threadId,
+        runId,
+        guestId: opts.guestId,
+        type: "user",
+        payload: { text },
+      });
+      this.broadcast(opts.workspaceId, {
+        type: "stream_event",
+        threadId,
+        message: userMessage,
+      });
+
+      void this.execute({
+        workspaceId: opts.workspaceId,
+        threadId,
+        runId,
+        guestId: opts.guestId,
+        text,
+        mode: opts.mode,
+        model: opts.model,
+        repoUrl: ws.repoUrl,
+        startingRef: ws.startingRef,
+      });
+      launched = true;
+
+      return (await getThread(threadId))!;
+    } finally {
+      this.startingWorkspaces.delete(opts.workspaceId);
+      if (!launched) {
+        if (threadId) this.pendingCancels.delete(threadId);
+        if (
+          busyClaimed &&
+          this.busy.get(opts.workspaceId)?.threadId === threadId
+        ) {
+          this.busy.delete(opts.workspaceId);
+          this.broadcast(opts.workspaceId, {
+            type: "workspace_busy",
+            busy: null,
+          });
+        }
+        if (markedRunning && threadId) {
+          try {
+            await this.markThread(threadId, "error");
+            const failedThread = await getThread(threadId);
+            if (failedThread) {
+              this.broadcast(opts.workspaceId, {
+                type: "thread_upsert",
+                thread: failedThread,
+              });
+            }
+          } catch (cleanupError) {
+            log.error("prompt.cleanup_failed", cleanupError, {
+              workspaceId: opts.workspaceId,
+              threadId,
+            });
+          }
+        }
+      }
     }
-
-    const busy: BusyState = {
-      threadId,
-      guestId: opts.guestId,
-      guestName: guest.displayName,
-    };
-    this.busy.set(opts.workspaceId, busy);
-    this.broadcast(opts.workspaceId, { type: "workspace_busy", busy });
-
-    const thread = await getThread(threadId);
-    if (thread) {
-      this.broadcast(opts.workspaceId, { type: "thread_upsert", thread });
-    }
-
-    const runId = nid(12);
-    await db.insert(runs).values({
-      id: runId,
-      threadId,
-      cursorRunId: null,
-      status: "running",
-      startedByGuestId: opts.guestId,
-      error: null,
-      createdAt: t,
-      finishedAt: null,
-    });
-
-    const userMessage = await this.persistMessage({
-      threadId,
-      runId,
-      guestId: opts.guestId,
-      type: "user",
-      payload: { text },
-    });
-    this.broadcast(opts.workspaceId, {
-      type: "stream_event",
-      threadId,
-      message: userMessage,
-    });
-
-    void this.execute({
-      workspaceId: opts.workspaceId,
-      threadId,
-      runId,
-      guestId: opts.guestId,
-      text,
-      mode: opts.mode,
-      model: opts.model,
-      repoUrl: ws.repoUrl,
-      startingRef: ws.startingRef,
-    });
-
-    return (await getThread(threadId))!;
   }
 
   async cancel(workspaceId: string, threadId: string) {
+    log.info("run.cancel_requested", { workspaceId, threadId });
+    const thread = await getThread(threadId);
+    if (!thread || thread.workspaceId !== workspaceId) {
+      throw new Error("Thread not found.");
+    }
+
     const run = this.activeRuns.get(threadId);
     if (run) {
       if (run.supports("cancel")) {
@@ -289,6 +379,13 @@ export class Orchestrator {
       throw new Error(run.unsupportedReason("cancel") ?? "Cancel is not supported.");
     }
 
+    const current = this.busy.get(workspaceId);
+    if (current?.threadId !== threadId) {
+      throw new Error("This thread is not running.");
+    }
+
+    this.pendingCancels.add(threadId);
+
     await db
       .update(runs)
       .set({ status: "cancelled", error: "Cancelled", finishedAt: now() })
@@ -297,14 +394,9 @@ export class Orchestrator {
       .update(threads)
       .set({ status: "cancelled", updatedAt: now() })
       .where(eq(threads.id, threadId));
-    const current = this.busy.get(workspaceId);
-    if (current?.threadId === threadId) {
-      this.busy.delete(workspaceId);
-      this.broadcast(workspaceId, { type: "workspace_busy", busy: null });
-    }
-    const thread = await getThread(threadId);
-    if (thread) {
-      this.broadcast(workspaceId, { type: "thread_upsert", thread });
+    const updated = await getThread(threadId);
+    if (updated) {
+      this.broadcast(workspaceId, { type: "thread_upsert", thread: updated });
     }
   }
 
@@ -321,7 +413,12 @@ export class Orchestrator {
       try {
         await Agent.archive(thread.cursorAgentId, { apiKey });
       } catch (err) {
-        console.warn("[cursorparty] Agent.archive", err);
+        log.warn("agent.archive_failed", {
+          error: err,
+          workspaceId,
+          threadId,
+          cursorAgentId: thread.cursorAgentId,
+        });
       }
     }
     await this.disposeAgent(threadId);
@@ -348,7 +445,12 @@ export class Orchestrator {
       try {
         await Agent.delete(thread.cursorAgentId, { apiKey });
       } catch (err) {
-        console.warn("[cursorparty] Agent.delete", err);
+        log.warn("agent.delete_failed", {
+          error: err,
+          workspaceId,
+          threadId,
+          cursorAgentId: thread.cursorAgentId,
+        });
       }
     }
     await this.disposeAgent(threadId);
@@ -380,12 +482,27 @@ export class Orchestrator {
 
       if (!agent) {
         if (threadRow?.cursorAgentId) {
+          log.info("agent.resuming", {
+            workspaceId: opts.workspaceId,
+            threadId: opts.threadId,
+            runId: opts.runId,
+            cursorAgentId: threadRow.cursorAgentId,
+          });
           agent = await Agent.resume(threadRow.cursorAgentId, {
             apiKey,
             model: { id: opts.model },
             mode: opts.mode,
           });
         } else {
+          log.info("agent.creating", {
+            workspaceId: opts.workspaceId,
+            threadId: opts.threadId,
+            runId: opts.runId,
+            model: opts.model,
+            mode: opts.mode,
+            repoUrl: opts.repoUrl,
+            startingRef: opts.startingRef,
+          });
           agent = await Agent.create({
             apiKey,
             name: threadRow?.title ?? titleFromPrompt(opts.text),
@@ -443,6 +560,21 @@ export class Orchestrator {
         .where(eq(runs.id, opts.runId));
 
       this.activeRuns.set(opts.threadId, run);
+      if (this.pendingCancels.delete(opts.threadId)) {
+        if (!run.supports("cancel")) {
+          throw new Error(
+            run.unsupportedReason("cancel") ?? "Cancel is not supported.",
+          );
+        }
+        await run.cancel();
+      }
+      log.info("run.started", {
+        workspaceId: opts.workspaceId,
+        threadId: opts.threadId,
+        runId: opts.runId,
+        cursorRunId: run.id,
+        cursorAgentId: agent.agentId,
+      });
       const upserted = await getThread(opts.threadId);
       if (upserted) {
         this.broadcast(opts.workspaceId, { type: "thread_upsert", thread: upserted });
@@ -476,6 +608,26 @@ export class Orchestrator {
           : result.status === "cancelled"
             ? "cancelled"
             : "error";
+
+      if (terminal === "error") {
+        log.error("run.completed_with_error", result.error ?? result.status, {
+          workspaceId,
+          threadId,
+          runId,
+          cursorRunId: run.id,
+          status: result.status,
+        });
+      } else {
+        log.info("run.completed", {
+          workspaceId,
+          threadId,
+          runId,
+          cursorRunId: run.id,
+          status: result.status,
+          gitBranch,
+          gitPrUrl,
+        });
+      }
 
       await db
         .update(runs)
@@ -515,6 +667,7 @@ export class Orchestrator {
     } catch (err) {
       await this.failRun(workspaceId, threadId, runId, err);
     } finally {
+      this.pendingCancels.delete(threadId);
       this.activeRuns.delete(threadId);
       const current = this.busy.get(workspaceId);
       if (current?.threadId === threadId) {
@@ -598,7 +751,15 @@ export class Orchestrator {
     runId: string,
     err: unknown,
   ) {
+    this.pendingCancels.delete(threadId);
     const { message, helpUrl } = describeError(err);
+    log.error("run.failed", err, {
+      workspaceId,
+      threadId,
+      runId,
+      userMessage: message,
+      helpUrl,
+    });
     await db
       .update(runs)
       .set({ status: "error", error: message, finishedAt: now() })
@@ -621,9 +782,12 @@ export class Orchestrator {
       message: statusMessage,
     });
     this.broadcast(workspaceId, { type: "error", message, helpUrl });
-    const thread = await getThread(threadId);
-    if (thread) {
-      this.broadcast(workspaceId, { type: "thread_upsert", thread });
+    const updatedThread = await getThread(threadId);
+    if (updatedThread) {
+      this.broadcast(workspaceId, {
+        type: "thread_upsert",
+        thread: updatedThread,
+      });
     }
 
     this.activeRuns.delete(threadId);
@@ -644,15 +808,17 @@ export class Orchestrator {
   private async disposeAgent(threadId: string) {
     const agent = this.agents.get(threadId);
     this.agents.delete(threadId);
+    this.pendingCancels.delete(threadId);
     this.activeRuns.delete(threadId);
     if (!agent) return;
     try {
       agent.close();
-    } catch {
+    } catch (err) {
+      log.warn("agent.close_failed", { error: err, threadId });
       try {
         await agent[Symbol.asyncDispose]();
-      } catch {
-        // ignore
+      } catch (disposeErr) {
+        log.warn("agent.dispose_failed", { error: disposeErr, threadId });
       }
     }
   }
