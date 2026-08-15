@@ -12,12 +12,14 @@ export function Transcript({
   liveText,
   liveThinking,
   selfId,
+  drafting,
 }: {
   thread: ThreadDTO | null;
   messages: MessageDTO[];
   liveText: string;
   liveThinking: string;
   selfId: string | null;
+  drafting: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottomRef = useRef(true);
@@ -39,11 +41,14 @@ export function Transcript({
     return (
       <div className="grid flex-1 place-items-center px-8 text-center">
         <div>
-          <p className="ticket">empty stage</p>
-          <h2 className="wordmark mt-2 text-4xl">Start a thread</h2>
+          <p className="ticket">{drafting ? "new thread" : "empty stage"}</p>
+          <h2 className="wordmark mt-2 text-4xl">
+            {drafting ? "Write the first prompt" : "Start a thread"}
+          </h2>
           <p className="mx-auto mt-3 max-w-sm text-sm text-mute">
-            Everyone in this room will see the prompt, the stream, and the git
-            branch the agent lands on.
+            {drafting
+              ? "Type below and send. The thread is created with that first prompt, and everyone in the room will see the stream."
+              : "Hit New, then send a prompt. Everyone in this room will see the stream and the git branch the agent lands on."}
           </p>
         </div>
       </div>
