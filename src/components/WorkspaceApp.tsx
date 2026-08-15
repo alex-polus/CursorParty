@@ -50,8 +50,11 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
   const wsRef = useRef<WebSocket | null>(null);
   const selectedRef = useRef<string | null>(null);
   const retryRef = useRef(0);
-  const draftRef = useRef(false);
+  const awaitingCreateRef = useRef(false);
+  const meRef = useRef<GuestDTO | null>(null);
   const modelRef = useRef(model);
+  const messageRequestRef = useRef(0);
+  const toastTimerRef = useRef<number | null>(null);
   const handlerRef = useRef<(msg: ServerMessage) => void>(() => {});
 
   useEffect(() => {
@@ -59,8 +62,8 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
   }, [selectedId]);
 
   useEffect(() => {
-    draftRef.current = draftThread;
-  }, [draftThread]);
+    meRef.current = me;
+  }, [me]);
 
   useEffect(() => {
     modelRef.current = model;
@@ -68,19 +71,36 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
-    window.setTimeout(() => setToast(null), 4200);
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, 4200);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+    };
   }, []);
 
   const send = useCallback((msg: ClientMessage) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(msg));
+      return true;
     }
+    return false;
   }, []);
 
   const onServerMessage = useCallback((msg: ServerMessage) => {
     switch (msg.type) {
       case "hello_ok":
+        meRef.current = msg.guest;
         setMe(msg.guest);
         setWorkspace(msg.workspace);
         break;
@@ -106,8 +126,13 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
           next[i] = msg.thread;
           return next.sort((a, b) => b.updatedAt - a.updatedAt);
         });
-        if (draftRef.current && !selectedRef.current) {
+        if (
+          awaitingCreateRef.current &&
+          !selectedRef.current &&
+          msg.thread.createdByGuestId === meRef.current?.id
+        ) {
           selectedRef.current = msg.thread.id;
+          awaitingCreateRef.current = false;
           setSelectedId(msg.thread.id);
           setDraftThread(false);
         }
@@ -115,6 +140,7 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
       case "thread_removed":
         setThreads((prev) => prev.filter((t) => t.id !== msg.threadId));
         if (selectedRef.current === msg.threadId) {
+          selectedRef.current = null;
           setSelectedId(null);
           setMessages([]);
         }
@@ -151,6 +177,7 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
       try {
         const data = await fetchWorkspace(workspaceId);
         setWorkspace(data.workspace);
+        meRef.current = data.me;
         setMe(data.me);
         setBusy(data.busy);
         const [t, m] = await Promise.all([
@@ -177,6 +204,7 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
       );
       wsRef.current = socket;
       socket.onopen = () => {
+        const reconnected = retryRef.current > 0;
         retryRef.current = 0;
         setConnected(true);
         socket.send(JSON.stringify({ type: "hello" } satisfies ClientMessage));
@@ -187,6 +215,43 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
               threadId: selectedRef.current,
             } satisfies ClientMessage),
           );
+        }
+        if (reconnected) {
+          void fetchThreads(workspaceId)
+            .then((result) => setThreads(result.threads))
+            .catch((err) =>
+              flash(
+                err instanceof Error
+                  ? err.message
+                  : "Failed to refresh threads",
+              ),
+            );
+
+          const selectedAtReconnect = selectedRef.current;
+          if (selectedAtReconnect) {
+            void fetchMessages(selectedAtReconnect)
+              .then((result) => {
+                if (selectedRef.current !== selectedAtReconnect) return;
+                setMessages((current) => {
+                  const byId = new Map(
+                    [...result.messages, ...current].map((message) => [
+                      message.id,
+                      message,
+                    ]),
+                  );
+                  return [...byId.values()].sort(
+                    (a, b) => a.createdAt - b.createdAt,
+                  );
+                });
+              })
+              .catch((err) =>
+                flash(
+                  err instanceof Error
+                    ? err.message
+                    : "Failed to refresh messages",
+                ),
+              );
+          }
         }
       };
       socket.onmessage = (ev) => {
@@ -211,24 +276,47 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [me, workspaceId]);
+  }, [flash, me, workspaceId]);
 
   useEffect(() => {
     send({ type: "viewing", threadId: selectedId });
   }, [selectedId, send]);
 
   useEffect(() => {
+    const requestId = ++messageRequestRef.current;
     if (!selectedId) {
       setMessages([]);
       setLiveText("");
       setLiveThinking("");
       return;
     }
+    setMessages([]);
     setLiveText("");
     setLiveThinking("");
     void fetchMessages(selectedId)
-      .then((r) => setMessages(r.messages))
-      .catch((err) => flash(err instanceof Error ? err.message : "Failed to load messages"));
+      .then((r) => {
+        if (
+          messageRequestRef.current === requestId &&
+          selectedRef.current === selectedId
+        ) {
+          setMessages((current) => {
+            const byId = new Map(
+              [...r.messages, ...current].map((message) => [
+                message.id,
+                message,
+              ]),
+            );
+            return [...byId.values()].sort(
+              (a, b) => a.createdAt - b.createdAt,
+            );
+          });
+        }
+      })
+      .catch((err) => {
+        if (messageRequestRef.current === requestId) {
+          flash(err instanceof Error ? err.message : "Failed to load messages");
+        }
+      });
   }, [flash, selectedId]);
 
   const selected = useMemo(
@@ -237,19 +325,23 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
   );
 
   const disabledReason = useMemo(() => {
+    if (!connected) return "Waiting for the room connection.";
     if (busy) {
       return `${busy.guestName}'s agent is running — wait or cancel it.`;
     }
     if (selected?.status === "archived") return "This thread is archived.";
     return null;
-  }, [busy, selected]);
+  }, [busy, connected, selected]);
 
   async function onJoin(displayName: string) {
     const { guest } = await claimGuest(workspaceId, displayName);
+    meRef.current = guest;
     setMe(guest);
   }
 
   function onNew() {
+    awaitingCreateRef.current = false;
+    selectedRef.current = null;
     setDraftThread(true);
     setSelectedId(null);
     setMessages([]);
@@ -273,9 +365,25 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
     const trimmed = text.trim();
     if (!trimmed) return;
     if (selectedId) {
-      send({ type: "prompt", threadId: selectedId, text: trimmed, mode, model });
+      if (
+        !send({
+          type: "prompt",
+          threadId: selectedId,
+          text: trimmed,
+          mode,
+          model,
+        })
+      ) {
+        flash("The room is reconnecting. Your prompt was not sent.");
+        return;
+      }
     } else {
-      send({ type: "create_thread", text: trimmed, mode, model });
+      awaitingCreateRef.current = true;
+      if (!send({ type: "create_thread", text: trimmed, mode, model })) {
+        awaitingCreateRef.current = false;
+        flash("The room is reconnecting. Your prompt was not sent.");
+        return;
+      }
       setDraftThread(true);
     }
     setText("");
@@ -284,7 +392,9 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
   function onCancel() {
     const threadId = busy?.threadId ?? selectedId;
     if (!threadId) return;
-    send({ type: "cancel", threadId });
+    if (!send({ type: "cancel", threadId })) {
+      flash("The room is reconnecting. The agent was not cancelled.");
+    }
   }
 
   if (loadError) {
@@ -326,6 +436,8 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
             presence={presence}
             showArchived={showArchived}
             onSelect={(id) => {
+              awaitingCreateRef.current = false;
+              selectedRef.current = id;
               setDraftThread(false);
               setSelectedId(id);
             }}

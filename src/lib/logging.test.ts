@@ -24,3 +24,11 @@ test("redacts sensitive fields from object-shaped failures", () => {
     { message: "bad request", apiKey: "[redacted]", nested: { token: "[redacted]" } },
   );
 });
+
+test("normalizes values that JSON cannot serialize directly", () => {
+  const createdAt = new Date("2026-08-15T12:00:00.000Z");
+  assert.deepEqual(serializeError({ count: 12n, createdAt }), {
+    count: "12",
+    createdAt: "2026-08-15T12:00:00.000Z",
+  });
+});

@@ -55,7 +55,11 @@ function sanitize(value: unknown, depth = 0): unknown {
   if (depth > 5) return "[max depth]";
   if (value instanceof Error) return errorDetails(value, depth);
   if (Array.isArray(value)) return value.map((item) => sanitize(item, depth + 1));
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "symbol" || typeof value === "function") return String(value);
   if (typeof value !== "object" || value === null) return value;
+  if (value instanceof Date) return value.toISOString();
+  if (value instanceof URL) return value.toString();
 
   const output: LogFields = {};
   for (const [key, item] of Object.entries(value)) {
@@ -73,7 +77,20 @@ function write(level: LogLevel, component: string, event: string, fields: LogFie
     event,
     ...fields,
   });
-  const line = JSON.stringify(entry);
+  let line: string;
+  try {
+    line = JSON.stringify(entry);
+  } catch (err) {
+    line = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: "error",
+      component: "logging",
+      event: "serialization_failed",
+      originalComponent: component,
+      originalEvent: event,
+      error: errorDetails(err instanceof Error ? err : new Error(String(err))),
+    });
+  }
   if (level === "error") console.error(line);
   else if (level === "warn") console.warn(line);
   else console.log(line);

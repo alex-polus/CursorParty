@@ -1,12 +1,16 @@
 import type { IncomingMessage } from "node:http";
-import { WebSocket, WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer, type RawData } from "ws";
 import { eq } from "drizzle-orm";
 import { db } from "../db/client";
 import { guests } from "../db/schema";
 import { getGuestInWorkspace, getWorkspace, toGuest } from "../db/queries";
 import { now } from "../ids";
 import { createLogger } from "../logging";
-import { GUEST_COOKIE, parseCookies } from "../http/cookies";
+import {
+  GUEST_COOKIE,
+  guestCookieName,
+  parseCookies,
+} from "../http/cookies";
 import {
   describeError,
   Orchestrator,
@@ -81,12 +85,20 @@ export class Hub {
   }
 
   private async onConnection(socket: WebSocket, req: IncomingMessage) {
+    const queuedMessages: string[] = [];
+    const queueMessage = (raw: RawData) => {
+      if (queuedMessages.length < 32) queuedMessages.push(raw.toString());
+    };
+    socket.on("message", queueMessage);
+
     try {
       const host = req.headers.host ?? "localhost";
       const url = new URL(req.url ?? "/ws", `http://${host}`);
       const workspaceId = url.searchParams.get("workspaceId");
       const cookies = parseCookies(req.headers.cookie);
-      const guestId = cookies[GUEST_COOKIE];
+      const guestId =
+        (workspaceId ? cookies[guestCookieName(workspaceId)] : undefined) ??
+        cookies[GUEST_COOKIE];
 
       if (!workspaceId || !guestId) {
         send(socket, {
@@ -113,29 +125,15 @@ export class Hub {
         .set({ lastSeenAt: now() })
         .where(eq(guests.id, guest.id));
 
+      if (socket.readyState !== WebSocket.OPEN) return;
+
       this.sockets.set(socket, {
         workspaceId,
         guestId: guest.id,
         viewingThreadId: null,
       });
 
-      log.info("connection.opened", {
-        workspaceId,
-        guestId: guest.id,
-        remoteAddress: req.socket.remoteAddress,
-      });
-
-      send(socket, { type: "hello_ok", guest, workspace });
-      send(socket, {
-        type: "models",
-        models: await this.orchestrator.listModels(),
-      });
-      send(socket, {
-        type: "workspace_busy",
-        busy: this.orchestrator.getBusy(workspaceId),
-      });
-      await this.emitPresence(workspaceId);
-
+      socket.off("message", queueMessage);
       socket.on("message", (raw) => {
         void this.onMessage(socket, raw.toString()).catch((err) => {
           log.error("message.unhandled_failure", err, {
@@ -162,6 +160,32 @@ export class Hub {
           guestId: guest.id,
         });
       });
+
+      for (const raw of queuedMessages) {
+        void this.onMessage(socket, raw).catch((err) => {
+          log.error("message.unhandled_failure", err, {
+            workspaceId,
+            guestId: guest.id,
+          });
+        });
+      }
+
+      log.info("connection.opened", {
+        workspaceId,
+        guestId: guest.id,
+        remoteAddress: req.socket.remoteAddress,
+      });
+
+      send(socket, { type: "hello_ok", guest, workspace });
+      send(socket, {
+        type: "models",
+        models: await this.orchestrator.listModels(),
+      });
+      send(socket, {
+        type: "workspace_busy",
+        busy: this.orchestrator.getBusy(workspaceId),
+      });
+      await this.emitPresence(workspaceId);
     } catch (err) {
       log.error("connection.rejected", err, {
         remoteAddress: req.socket.remoteAddress,
@@ -178,7 +202,9 @@ export class Hub {
 
     let msg: ClientMessage;
     try {
-      msg = JSON.parse(raw) as ClientMessage;
+      const parsed: unknown = JSON.parse(raw);
+      if (!isClientMessage(parsed)) throw new Error("Invalid message shape");
+      msg = parsed;
     } catch (err) {
       log.warn("message.invalid_json", {
         error: err,
@@ -295,4 +321,33 @@ function send(socket: WebSocket, message: ServerMessage) {
       log.error("send.failed", err, { messageType: message.type });
     }
   }
+}
+
+function isClientMessage(value: unknown): value is ClientMessage {
+  if (!value || typeof value !== "object") return false;
+  const message = value as Record<string, unknown>;
+  switch (message.type) {
+    case "hello":
+      return true;
+    case "viewing":
+      return message.threadId === null || typeof message.threadId === "string";
+    case "create_thread":
+      return isPromptFields(message);
+    case "prompt":
+      return typeof message.threadId === "string" && isPromptFields(message);
+    case "cancel":
+    case "archive_thread":
+    case "delete_thread":
+      return typeof message.threadId === "string";
+    default:
+      return false;
+  }
+}
+
+function isPromptFields(message: Record<string, unknown>): boolean {
+  return (
+    typeof message.text === "string" &&
+    (message.mode === "agent" || message.mode === "plan") &&
+    typeof message.model === "string"
+  );
 }

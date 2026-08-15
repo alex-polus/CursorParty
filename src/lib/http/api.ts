@@ -20,7 +20,12 @@ import { colorForIndex } from "../colors";
 import { cursorApiKey } from "../env";
 import { nid, now } from "../ids";
 import { createLogger } from "../logging";
-import { GUEST_COOKIE, parseCookies, serializeCookie } from "./cookies";
+import {
+  GUEST_COOKIE,
+  guestCookieName,
+  parseCookies,
+  serializeCookie,
+} from "./cookies";
 import {
   isFormSubmission,
   parseWorkspaceCreateInput,
@@ -210,7 +215,8 @@ export async function handleApi(
         return true;
       }
       const cookies = parseCookies(req.headers.cookie);
-      const guestId = cookies[GUEST_COOKIE];
+      const guestId =
+        cookies[guestCookieName(workspace.id)] ?? cookies[GUEST_COOKIE];
       const me = guestId
         ? await getGuestInWorkspace(guestId, workspace.id)
         : null;
@@ -229,7 +235,19 @@ export async function handleApi(
         notFound(res);
         return true;
       }
-      const body = await readJson<{ displayName?: string }>(req);
+      let body: { displayName?: string };
+      try {
+        body = await readJson<{ displayName?: string }>(req);
+      } catch (err) {
+        log.warn("request.invalid_body", {
+          requestId,
+          method,
+          path,
+          error: err,
+        });
+        json(res, 400, { error: "Invalid request body" });
+        return true;
+      }
       const displayName = body.displayName?.trim();
       if (!displayName || displayName.length > 32) {
         json(res, 400, { error: "Display name must be 1–32 characters." });
@@ -237,7 +255,8 @@ export async function handleApi(
       }
 
       const cookies = parseCookies(req.headers.cookie);
-      const existingId = cookies[GUEST_COOKIE];
+      const workspaceCookie = guestCookieName(workspace.id);
+      const existingId = cookies[workspaceCookie] ?? cookies[GUEST_COOKIE];
       const existing = existingId
         ? await getGuestInWorkspace(existingId, workspace.id)
         : null;
@@ -248,7 +267,12 @@ export async function handleApi(
           .set({ displayName, lastSeenAt: now() })
           .where(eq(guests.id, existing.id));
         const me = await getGuest(existing.id);
-        json(res, 200, { guest: me });
+        json(
+          res,
+          200,
+          { guest: me },
+          { "Set-Cookie": serializeCookie(workspaceCookie, existing.id) },
+        );
         return true;
       }
 
@@ -275,7 +299,7 @@ export async function handleApi(
         color,
         createdAt: t,
         lastSeenAt: t,
-      }) }, { "Set-Cookie": serializeCookie(GUEST_COOKIE, id) });
+      }) }, { "Set-Cookie": serializeCookie(workspaceCookie, id) });
       return true;
     }
 
@@ -319,12 +343,16 @@ export async function handleApi(
       requestId,
       method,
       path,
-      statusCode: res.statusCode,
+      statusCode: 500,
       headersSent: res.headersSent,
     });
-    json(res, 500, {
-      error: err instanceof Error ? err.message : "Server error",
-    });
+    if (!res.headersSent) {
+      json(res, 500, {
+        error: err instanceof Error ? err.message : "Server error",
+      });
+    } else {
+      res.end();
+    }
     return true;
   }
 }

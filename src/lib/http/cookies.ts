@@ -1,5 +1,9 @@
 export const GUEST_COOKIE = "cp_guest";
 
+export function guestCookieName(workspaceId: string): string {
+  return `${GUEST_COOKIE}_${workspaceId}`;
+}
+
 export function parseCookies(header: string | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   if (!header) return out;

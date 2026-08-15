@@ -91,6 +91,8 @@ export class Orchestrator {
   private agents = new Map<string, SDKAgent>();
   private activeRuns = new Map<string, Run>();
   private busy = new Map<string, BusyState>();
+  private startingWorkspaces = new Set<string>();
+  private pendingCancels = new Set<string>();
 
   constructor(private broadcast: Broadcast) {}
 
@@ -202,11 +204,22 @@ export class Orchestrator {
 
     const existing = this.busy.get(opts.workspaceId);
     if (existing) throw new WorkspaceBusyError(existing);
-
-    const guest = await getGuest(opts.guestId);
-    if (!guest || guest.workspaceId !== opts.workspaceId) {
-      throw new Error("Unknown guest.");
+    if (this.startingWorkspaces.has(opts.workspaceId)) {
+      throw new Error("An agent is already starting in this workspace.");
     }
+    this.startingWorkspaces.add(opts.workspaceId);
+
+    let threadId = opts.threadId;
+    let markedRunning = false;
+    let busyClaimed = false;
+    let launched = false;
+
+    try {
+
+      const guest = await getGuest(opts.guestId);
+      if (!guest || guest.workspaceId !== opts.workspaceId) {
+        throw new Error("Unknown guest.");
+      }
 
     const [ws] = await db
       .select()
@@ -215,7 +228,6 @@ export class Orchestrator {
       .limit(1);
     if (!ws) throw new Error("Workspace not found.");
 
-    let threadId = opts.threadId;
     const t = now();
 
     if (!threadId) {
@@ -234,6 +246,7 @@ export class Orchestrator {
         createdAt: t,
         updatedAt: t,
       });
+      markedRunning = true;
     } else {
       const thread = await getThread(threadId);
       if (!thread || thread.workspaceId !== opts.workspaceId) {
@@ -251,6 +264,7 @@ export class Orchestrator {
           updatedAt: t,
         })
         .where(eq(threads.id, threadId));
+      markedRunning = true;
     }
 
     const busy: BusyState = {
@@ -259,6 +273,7 @@ export class Orchestrator {
       guestName: guest.displayName,
     };
     this.busy.set(opts.workspaceId, busy);
+    busyClaimed = true;
     log.info("prompt.accepted", {
       workspaceId: opts.workspaceId,
       threadId,
@@ -311,12 +326,51 @@ export class Orchestrator {
       repoUrl: ws.repoUrl,
       startingRef: ws.startingRef,
     });
+    launched = true;
 
     return (await getThread(threadId))!;
+    } finally {
+      this.startingWorkspaces.delete(opts.workspaceId);
+      if (!launched) {
+        if (threadId) this.pendingCancels.delete(threadId);
+        if (
+          busyClaimed &&
+          this.busy.get(opts.workspaceId)?.threadId === threadId
+        ) {
+          this.busy.delete(opts.workspaceId);
+          this.broadcast(opts.workspaceId, {
+            type: "workspace_busy",
+            busy: null,
+          });
+        }
+        if (markedRunning && threadId) {
+          try {
+            await this.markThread(threadId, "error");
+            const failedThread = await getThread(threadId);
+            if (failedThread) {
+              this.broadcast(opts.workspaceId, {
+                type: "thread_upsert",
+                thread: failedThread,
+              });
+            }
+          } catch (cleanupError) {
+            log.error("prompt.cleanup_failed", cleanupError, {
+              workspaceId: opts.workspaceId,
+              threadId,
+            });
+          }
+        }
+      }
+    }
   }
 
   async cancel(workspaceId: string, threadId: string) {
     log.info("run.cancel_requested", { workspaceId, threadId });
+    const thread = await getThread(threadId);
+    if (!thread || thread.workspaceId !== workspaceId) {
+      throw new Error("Thread not found.");
+    }
+
     const run = this.activeRuns.get(threadId);
     if (run) {
       if (run.supports("cancel")) {
@@ -326,6 +380,13 @@ export class Orchestrator {
       throw new Error(run.unsupportedReason("cancel") ?? "Cancel is not supported.");
     }
 
+    const current = this.busy.get(workspaceId);
+    if (current?.threadId !== threadId) {
+      throw new Error("This thread is not running.");
+    }
+
+    this.pendingCancels.add(threadId);
+
     await db
       .update(runs)
       .set({ status: "cancelled", error: "Cancelled", finishedAt: now() })
@@ -334,14 +395,9 @@ export class Orchestrator {
       .update(threads)
       .set({ status: "cancelled", updatedAt: now() })
       .where(eq(threads.id, threadId));
-    const current = this.busy.get(workspaceId);
-    if (current?.threadId === threadId) {
-      this.busy.delete(workspaceId);
-      this.broadcast(workspaceId, { type: "workspace_busy", busy: null });
-    }
-    const thread = await getThread(threadId);
-    if (thread) {
-      this.broadcast(workspaceId, { type: "thread_upsert", thread });
+    const updated = await getThread(threadId);
+    if (updated) {
+      this.broadcast(workspaceId, { type: "thread_upsert", thread: updated });
     }
   }
 
@@ -505,6 +561,14 @@ export class Orchestrator {
         .where(eq(runs.id, opts.runId));
 
       this.activeRuns.set(opts.threadId, run);
+      if (this.pendingCancels.delete(opts.threadId)) {
+        if (!run.supports("cancel")) {
+          throw new Error(
+            run.unsupportedReason("cancel") ?? "Cancel is not supported.",
+          );
+        }
+        await run.cancel();
+      }
       log.info("run.started", {
         workspaceId: opts.workspaceId,
         threadId: opts.threadId,
@@ -604,6 +668,7 @@ export class Orchestrator {
     } catch (err) {
       await this.failRun(workspaceId, threadId, runId, err);
     } finally {
+      this.pendingCancels.delete(threadId);
       this.activeRuns.delete(threadId);
       const current = this.busy.get(workspaceId);
       if (current?.threadId === threadId) {
@@ -687,6 +752,7 @@ export class Orchestrator {
     runId: string,
     err: unknown,
   ) {
+    this.pendingCancels.delete(threadId);
     const { message, helpUrl } = describeError(err);
     log.error("run.failed", err, {
       workspaceId,
@@ -717,9 +783,12 @@ export class Orchestrator {
       message: statusMessage,
     });
     this.broadcast(workspaceId, { type: "error", message, helpUrl });
-    const thread = await getThread(threadId);
-    if (thread) {
-      this.broadcast(workspaceId, { type: "thread_upsert", thread });
+    const updatedThread = await getThread(threadId);
+    if (updatedThread) {
+      this.broadcast(workspaceId, {
+        type: "thread_upsert",
+        thread: updatedThread,
+      });
     }
 
     this.activeRuns.delete(threadId);
@@ -740,6 +809,7 @@ export class Orchestrator {
   private async disposeAgent(threadId: string) {
     const agent = this.agents.get(threadId);
     this.agents.delete(threadId);
+    this.pendingCancels.delete(threadId);
     this.activeRuns.delete(threadId);
     if (!agent) return;
     try {

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Avatar } from "./PresencePanel";
@@ -18,6 +19,22 @@ export function Transcript({
   liveThinking: string;
   selfId: string | null;
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pinnedToBottomRef = useRef(true);
+
+  useEffect(() => {
+    pinnedToBottomRef.current = true;
+  }, [thread?.id]);
+
+  useEffect(() => {
+    if (!pinnedToBottomRef.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      const element = scrollRef.current;
+      if (element) element.scrollTop = element.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [liveText, liveThinking, messages, thread?.id]);
+
   if (!thread) {
     return (
       <div className="grid flex-1 place-items-center px-8 text-center">
@@ -34,7 +51,15 @@ export function Transcript({
   }
 
   return (
-    <div className="scroll-thin flex-1 overflow-y-auto px-5 py-5">
+    <div
+      ref={scrollRef}
+      onScroll={(event) => {
+        const element = event.currentTarget;
+        pinnedToBottomRef.current =
+          element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+      }}
+      className="scroll-thin flex-1 overflow-y-auto px-5 py-5"
+    >
       <header className="mb-6 border-b border-rule pb-4">
         <p className="ticket">{thread.mode} · {thread.model}</p>
         <h2 className="mt-1 font-display text-2xl italic leading-tight">
