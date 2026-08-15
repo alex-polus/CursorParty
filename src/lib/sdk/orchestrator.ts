@@ -215,120 +215,119 @@ export class Orchestrator {
     let launched = false;
 
     try {
-
       const guest = await getGuest(opts.guestId);
       if (!guest || guest.workspaceId !== opts.workspaceId) {
         throw new Error("Unknown guest.");
       }
 
-    const [ws] = await db
-      .select()
-      .from(workspaces)
-      .where(eq(workspaces.id, opts.workspaceId))
-      .limit(1);
-    if (!ws) throw new Error("Workspace not found.");
+      const [ws] = await db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, opts.workspaceId))
+        .limit(1);
+      if (!ws) throw new Error("Workspace not found.");
 
-    const t = now();
+      const t = now();
 
-    if (!threadId) {
-      threadId = nid(12);
-      await db.insert(threads).values({
-        id: threadId,
-        workspaceId: opts.workspaceId,
-        cursorAgentId: null,
-        title: titleFromPrompt(text),
-        status: "running",
-        mode: opts.mode,
-        model: opts.model,
-        createdByGuestId: opts.guestId,
-        gitBranch: null,
-        gitPrUrl: null,
-        createdAt: t,
-        updatedAt: t,
-      });
-      markedRunning = true;
-    } else {
-      const thread = await getThread(threadId);
-      if (!thread || thread.workspaceId !== opts.workspaceId) {
-        throw new Error("Thread not found.");
-      }
-      if (thread.status === "archived") {
-        throw new Error("This thread is archived.");
-      }
-      await db
-        .update(threads)
-        .set({
+      if (!threadId) {
+        threadId = nid(12);
+        await db.insert(threads).values({
+          id: threadId,
+          workspaceId: opts.workspaceId,
+          cursorAgentId: null,
+          title: titleFromPrompt(text),
           status: "running",
           mode: opts.mode,
           model: opts.model,
+          createdByGuestId: opts.guestId,
+          gitBranch: null,
+          gitPrUrl: null,
+          createdAt: t,
           updatedAt: t,
-        })
-        .where(eq(threads.id, threadId));
-      markedRunning = true;
-    }
+        });
+        markedRunning = true;
+      } else {
+        const thread = await getThread(threadId);
+        if (!thread || thread.workspaceId !== opts.workspaceId) {
+          throw new Error("Thread not found.");
+        }
+        if (thread.status === "archived") {
+          throw new Error("This thread is archived.");
+        }
+        await db
+          .update(threads)
+          .set({
+            status: "running",
+            mode: opts.mode,
+            model: opts.model,
+            updatedAt: t,
+          })
+          .where(eq(threads.id, threadId));
+        markedRunning = true;
+      }
 
-    const busy: BusyState = {
-      threadId,
-      guestId: opts.guestId,
-      guestName: guest.displayName,
-    };
-    this.busy.set(opts.workspaceId, busy);
-    busyClaimed = true;
-    log.info("prompt.accepted", {
-      workspaceId: opts.workspaceId,
-      threadId,
-      guestId: opts.guestId,
-      mode: opts.mode,
-      model: opts.model,
-      isNewThread: !opts.threadId,
-      promptLength: text.length,
-    });
-    this.broadcast(opts.workspaceId, { type: "workspace_busy", busy });
+      const busy: BusyState = {
+        threadId,
+        guestId: opts.guestId,
+        guestName: guest.displayName,
+      };
+      this.busy.set(opts.workspaceId, busy);
+      busyClaimed = true;
+      log.info("prompt.accepted", {
+        workspaceId: opts.workspaceId,
+        threadId,
+        guestId: opts.guestId,
+        mode: opts.mode,
+        model: opts.model,
+        isNewThread: !opts.threadId,
+        promptLength: text.length,
+      });
+      this.broadcast(opts.workspaceId, { type: "workspace_busy", busy });
 
-    const thread = await getThread(threadId);
-    if (thread) {
-      this.broadcast(opts.workspaceId, { type: "thread_upsert", thread });
-    }
+      const thread = await getThread(threadId);
+      if (thread) {
+        this.broadcast(opts.workspaceId, { type: "thread_upsert", thread });
+      }
 
-    const runId = nid(12);
-    await db.insert(runs).values({
-      id: runId,
-      threadId,
-      cursorRunId: null,
-      status: "running",
-      startedByGuestId: opts.guestId,
-      error: null,
-      createdAt: t,
-      finishedAt: null,
-    });
+      const runId = nid(12);
+      await db.insert(runs).values({
+        id: runId,
+        threadId,
+        cursorRunId: null,
+        status: "running",
+        startedByGuestId: opts.guestId,
+        error: null,
+        createdAt: t,
+        finishedAt: null,
+      });
 
-    const userMessage = await this.persistMessage({
-      threadId,
-      runId,
-      guestId: opts.guestId,
-      type: "user",
-      payload: { text },
-    });
-    this.broadcast(opts.workspaceId, {
-      type: "stream_event",
-      threadId,
-      message: userMessage,
-    });
+      const userMessage = await this.persistMessage({
+        threadId,
+        runId,
+        guestId: opts.guestId,
+        type: "user",
+        payload: { text },
+      });
+      this.broadcast(opts.workspaceId, {
+        type: "stream_event",
+        threadId,
+        message: userMessage,
+      });
 
-    void this.execute({
-      workspaceId: opts.workspaceId,
-      threadId,
-      runId,
-      guestId: opts.guestId,
-      text,
-      mode: opts.mode,
-      model: opts.model,
-      repoUrl: ws.repoUrl,
-      startingRef: ws.startingRef,
-    });
-    launched = true;
+      void this.execute({
+        workspaceId: opts.workspaceId,
+        threadId,
+        runId,
+        guestId: opts.guestId,
+        text,
+        mode: opts.mode,
+        model: opts.model,
+        repoUrl: ws.repoUrl,
+        startingRef: ws.startingRef,
+      });
+      launched = true;
 
-    return (await getThread(threadId))!;
+      return (await getThread(threadId))!;
     } finally {
       this.startingWorkspaces.delete(opts.workspaceId);
       if (!launched) {

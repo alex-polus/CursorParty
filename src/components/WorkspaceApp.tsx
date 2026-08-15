@@ -163,6 +163,7 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
       case "run_status":
         break;
       case "error":
+        awaitingCreateRef.current = false;
         flash(msg.helpUrl ? `${msg.message} — ${msg.helpUrl}` : msg.message);
         break;
     }
@@ -171,6 +172,8 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
   useEffect(() => {
     handlerRef.current = onServerMessage;
   }, [onServerMessage]);
+
+  const guestId = me?.id;
 
   useEffect(() => {
     void (async () => {
@@ -193,7 +196,7 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
   }, [workspaceId]);
 
   useEffect(() => {
-    if (!me) return;
+    if (!guestId) return;
     let cancelled = false;
 
     function connect() {
@@ -276,7 +279,7 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [flash, me, workspaceId]);
+  }, [flash, guestId, workspaceId]);
 
   useEffect(() => {
     send({ type: "viewing", threadId: selectedId });
@@ -442,8 +445,16 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
               setSelectedId(id);
             }}
             onNew={onNew}
-            onArchive={(id) => send({ type: "archive_thread", threadId: id })}
-            onDelete={(id) => send({ type: "delete_thread", threadId: id })}
+            onArchive={(id) => {
+              if (!send({ type: "archive_thread", threadId: id })) {
+                flash("The room is reconnecting. The thread was not archived.");
+              }
+            }}
+            onDelete={(id) => {
+              if (!send({ type: "delete_thread", threadId: id })) {
+                flash("The room is reconnecting. The thread was not deleted.");
+              }
+            }}
             onToggleArchived={() => setShowArchived((v) => !v)}
           />
           <PresencePanel guests={presence} selfId={me?.id ?? null} />

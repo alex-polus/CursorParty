@@ -134,13 +134,19 @@ export class Hub {
       });
 
       socket.off("message", queueMessage);
-      socket.on("message", (raw) => {
-        void this.onMessage(socket, raw.toString()).catch((err) => {
-          log.error("message.unhandled_failure", err, {
-            workspaceId,
-            guestId: guest.id,
+      let commandQueue = Promise.resolve();
+      const enqueueMessage = (raw: string) => {
+        commandQueue = commandQueue
+          .then(() => this.onMessage(socket, raw))
+          .catch((err) => {
+            log.error("message.unhandled_failure", err, {
+              workspaceId,
+              guestId: guest.id,
+            });
           });
-        });
+      };
+      socket.on("message", (raw) => {
+        enqueueMessage(raw.toString());
       });
       socket.on("close", (code, reason) => {
         this.sockets.delete(socket);
@@ -162,12 +168,7 @@ export class Hub {
       });
 
       for (const raw of queuedMessages) {
-        void this.onMessage(socket, raw).catch((err) => {
-          log.error("message.unhandled_failure", err, {
-            workspaceId,
-            guestId: guest.id,
-          });
-        });
+        enqueueMessage(raw);
       }
 
       log.info("connection.opened", {

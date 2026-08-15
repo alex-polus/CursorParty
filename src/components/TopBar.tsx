@@ -18,7 +18,9 @@ export function TopBar({
   async function copyInvite() {
     const invite = window.location.href;
     try {
-      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard unavailable");
+      }
       await navigator.clipboard.writeText(invite);
     } catch {
       const input = document.createElement("textarea");
