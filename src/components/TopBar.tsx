@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { BrandMark } from "./BrandMark";
 import type { BusyState, WorkspaceDTO } from "@/lib/types";
 
 export function TopBar({
@@ -40,19 +39,20 @@ export function TopBar({
   }
 
   return (
-    <header className="flex items-center gap-4 border-b border-rule px-4 py-2.5">
-      <a
-        href="/"
-        className="flex shrink-0 items-center gap-2 text-paper"
-        aria-label="CursorParty home"
-      >
-        <BrandMark className="h-8 w-10 text-paper" />
-        <span className="wordmark text-xl leading-none">CursorParty</span>
+    <header className="flex items-center gap-4 border-b border-rule px-4 py-3.5">
+      <a href="/" className="shrink-0" aria-label="CursorParty home">
+        <img
+          src="/cursorparty-wordmark.png"
+          alt="CursorParty"
+          width={861}
+          height={290}
+          className="h-12 w-auto bg-transparent object-contain sm:h-14 lg:h-16"
+        />
       </a>
       <span className="hidden h-4 w-px bg-rule sm:block" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm">{workspace.name}</p>
-        <p className="truncate font-mono text-[11px] text-mute">
+        <p className="truncate font-mono text-[11px] leading-snug text-mute">
           {repo}
           <span className="text-acid"> @{workspace.startingRef}</span>
         </p>

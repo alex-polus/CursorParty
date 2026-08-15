@@ -84,27 +84,27 @@ export function HomePage() {
             alt="CursorParty"
             width={500}
             height={500}
-            className="-ml-8 h-52 w-52 bg-transparent object-contain sm:h-64 sm:w-64 lg:-ml-10 lg:h-80 lg:w-80"
+            className="-ml-6 h-36 w-36 bg-transparent object-contain sm:h-44 sm:w-44 lg:-ml-8 lg:h-52 lg:w-52"
           />
           <p className="ticket text-right">v1 · multiplayer agent view</p>
         </header>
 
         <div className="grid flex-1 items-center gap-14 py-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)] lg:gap-16 lg:py-6">
           <section className="max-w-2xl">
-            <h1 className="landing-display text-[clamp(2.85rem,8.4vw,6.15rem)] leading-[0.86] text-paper">
+            <h1 className="landing-display text-[clamp(2.6rem,7.4vw,5.35rem)] leading-[0.88] text-paper">
               <span className="enter block" style={{ animationDelay: "40ms" }}>
                 One room
                 <span className="text-party-blue">.</span>
               </span>
               <span
-                className="enter mt-[0.06em] block"
-                style={{ animationDelay: "120ms" }}
+                className="enter mt-[0.04em] block"
+                style={{ animationDelay: "90ms" }}
               >
                 Many engineers
                 <span className="text-party-magenta">.</span>
               </span>
               <span
-                className="enter mt-[0.06em] block text-tangerine"
+                className="enter mt-[0.04em] block text-tangerine"
                 style={{ animationDelay: "200ms" }}
               >
                 One agent
@@ -115,25 +115,25 @@ export function HomePage() {
             <div
               aria-hidden
               className="enter mt-8 flex items-center gap-2.5"
-              style={{ animationDelay: "280ms" }}
+              style={{ animationDelay: "260ms" }}
             >
               <span className="h-2 w-2 rounded-full bg-party-blue" />
               <span className="h-2 w-2 rounded-full bg-party-magenta" />
               <span className="h-2 w-2 rounded-full bg-party-gold" />
               <span className="h-2 w-2 rounded-full bg-party-teal" />
-              <span className="ml-1 h-px flex-1 max-w-24 bg-rule" />
+              <span className="ml-1 h-px min-w-16 flex-1 max-w-36 bg-gradient-to-r from-rule to-transparent" />
             </div>
 
             <p
-              className="enter mt-6 max-w-md text-[15px] leading-relaxed text-mute"
-              style={{ animationDelay: "320ms" }}
+              className="enter mt-6 max-w-lg text-[15px] leading-relaxed text-mute sm:text-base"
+              style={{ animationDelay: "300ms" }}
             >
               CursorParty is a shared Agent View over a GitHub repo. Not an IDE —
               your editor stays yours. The transcript, the prompt, and who is in
               the room become multiplayer.
             </p>
             {!hasApiKey && (
-              <p className="mt-5 max-w-md border border-tangerine/40 bg-tangerine/10 px-3 py-2 text-sm text-paper">
+              <p className="mt-5 max-w-lg border border-tangerine/40 bg-tangerine/10 px-3 py-2 text-sm text-paper">
                 No <span className="font-mono text-xs">CURSOR_API_KEY</span> in
                 env. You can still open a room; agents will not start until a key
                 is set.
@@ -224,6 +224,36 @@ export function HomePage() {
             )}
           </section>
         </div>
+
+        <section className="enter mt-4 border-t border-rule py-10 lg:mt-2 lg:py-14">
+          <p className="ticket">powered by cursor</p>
+          <h2 className="landing-display mt-5 max-w-4xl text-[clamp(1.85rem,3.8vw,3rem)] leading-[0.94] text-paper">
+            Multiplayer engineering
+            <span className="text-party-blue">,</span>
+            <br />
+            powered by{" "}
+            <span className="text-tangerine">
+              Cursor SDK
+              <span className="text-party-gold">.</span>
+            </span>
+          </h2>
+          <div className="mt-8 flex items-start gap-4">
+            <div
+              aria-hidden
+              className="mt-2 hidden items-center gap-2 sm:flex"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-party-blue" />
+              <span className="h-1.5 w-1.5 rounded-full bg-party-magenta" />
+              <span className="h-1.5 w-1.5 rounded-full bg-party-gold" />
+              <span className="h-1.5 w-1.5 rounded-full bg-party-teal" />
+            </div>
+            <p className="max-w-2xl text-[15px] leading-relaxed text-mute">
+              CursorParty gives your team one shared cloud workspace where
+              engineers and AI agents can build together in real time—sharing
+              context, prompts, and progress as they work.
+            </p>
+          </div>
+        </section>
       </div>
     </main>
   );
