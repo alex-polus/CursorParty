@@ -90,7 +90,13 @@ export function ThreadList({
                       {String(i + 1).padStart(2, "0")}
                     </span>
                     {watchers.slice(0, 3).map((g) => (
-                      <Avatar key={g.id} name={g.displayName} color={g.color} size={14} />
+                      <Avatar
+                        key={g.id}
+                        name={g.displayName}
+                        color={g.color}
+                        profilePicture={g.profilePicture}
+                        size={14}
+                      />
                     ))}
                   </div>
                   <p className="mt-1 truncate text-[13px] leading-snug">

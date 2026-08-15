@@ -54,13 +54,17 @@ export function fetchWorkspace(id: string) {
   }>(`/api/workspaces/${id}`);
 }
 
-export function claimGuest(workspaceId: string, displayName: string) {
+export function claimGuest(
+  workspaceId: string,
+  displayName: string,
+  profilePicture: string | null,
+) {
   return fetchJSON<{ guest: GuestDTO }>(
     `/api/workspaces/${workspaceId}/guests`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ displayName }),
+      body: JSON.stringify({ displayName, profilePicture }),
     },
   );
 }

@@ -13,6 +13,7 @@ export const guests = sqliteTable("guests", {
   workspaceId: text("workspace_id").notNull(),
   displayName: text("display_name").notNull(),
   color: text("color").notNull(),
+  profilePicture: text("profile_picture"),
   createdAt: integer("created_at").notNull(),
   lastSeenAt: integer("last_seen_at").notNull(),
 });

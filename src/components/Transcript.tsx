@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Avatar } from "./PresencePanel";
+import {
+  groupTranscriptRows,
+  structureTranscript,
+} from "@/lib/client/transcript";
 import type { MessageDTO, ThreadDTO } from "@/lib/types";
 
 export function Transcript({
@@ -23,6 +27,14 @@ export function Transcript({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottomRef = useRef(true);
+  const structured = useMemo(
+    () => structureTranscript(messages, liveText, liveThinking),
+    [liveText, liveThinking, messages],
+  );
+  const rows = useMemo(
+    () => groupTranscriptRows(structured.messages),
+    [structured.messages],
+  );
 
   useEffect(() => {
     pinnedToBottomRef.current = true;
@@ -74,23 +86,29 @@ export function Transcript({
       </header>
 
       <ol className="grid gap-4">
-        {messages.map((m) => (
-          <li key={m.id}>
-            <MessageRow message={m} selfId={selfId} />
+        {rows.map((row) => (
+          <li key={row.key}>
+            {row.kind === "tools" ? (
+              <ToolActivity messages={row.messages} />
+            ) : (
+              <MessageRow message={row.message} selfId={selfId} />
+            )}
           </li>
         ))}
-        {liveThinking && (
-          <li className="border-l-2 border-mute/40 pl-3 font-mono text-[12px] leading-relaxed text-mute">
-            <p className="ticket mb-1">thinking</p>
-            {liveThinking}
+        {structured.remainingLiveThinking && (
+          <li>
+            <ThinkingMessage
+              text={structured.remainingLiveThinking}
+              streaming
+            />
           </li>
         )}
-        {liveText && (
+        {structured.remainingLiveText && (
           <li>
-            <p className="ticket mb-1">agent</p>
-            <div className="md-body">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{liveText}</ReactMarkdown>
-            </div>
+            <AssistantMessage
+              text={structured.remainingLiveText}
+              streaming
+            />
           </li>
         )}
       </ol>
@@ -144,7 +162,12 @@ function MessageRow({
         />
         <div className="min-w-0">
           <div className="mb-1 flex items-center gap-2">
-            <Avatar name={name} color={color} size={16} />
+            <Avatar
+              name={name}
+              color={color}
+              profilePicture={message.guest?.profilePicture}
+              size={16}
+            />
             <span className="text-xs" style={{ color }}>
               {name}
               {mine ? " · you" : ""}
@@ -159,18 +182,11 @@ function MessageRow({
   }
 
   if (message.type === "thinking") {
-    return (
-      <details className="border-l-2 border-mute/30 pl-3">
-        <summary className="ticket cursor-pointer">thinking</summary>
-        <p className="mt-1 whitespace-pre-wrap font-mono text-[12px] text-mute">
-          {String(message.payload.text ?? "")}
-        </p>
-      </details>
-    );
+    return <ThinkingMessage text={String(message.payload.text ?? "")} />;
   }
 
   if (message.type === "tool_call") {
-    return <ToolCallCard payload={message.payload} />;
+    return <ToolActivity messages={[message]} />;
   }
 
   if (message.type === "status") {
@@ -182,51 +198,141 @@ function MessageRow({
     );
   }
 
+  return <AssistantMessage text={String(message.payload.text ?? "")} />;
+}
+
+function AssistantMessage({
+  text,
+  streaming = false,
+}: {
+  text: string;
+  streaming?: boolean;
+}) {
   return (
-    <div>
-      <p className="ticket mb-1">agent</p>
+    <article className="max-w-4xl border-l-2 border-sky bg-ink-2/60 px-4 py-3">
+      <header className="mb-2 flex items-center gap-2">
+        <span className="ticket text-sky">agent response</span>
+        {streaming && (
+          <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-acid" />
+        )}
+      </header>
       <div className="md-body">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-          {String(message.payload.text ?? "")}
-        </ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
       </div>
-    </div>
+    </article>
   );
 }
 
-function ToolCallCard({ payload }: { payload: Record<string, unknown> }) {
+function ThinkingMessage({
+  text,
+  streaming = false,
+}: {
+  text: string;
+  streaming?: boolean;
+}) {
+  return (
+    <details
+      open={streaming || undefined}
+      className="max-w-4xl border-l-2 border-mute/40 bg-ink-2/30 px-4 py-2.5"
+    >
+      <summary className="ticket flex cursor-pointer list-none items-center gap-2 select-none">
+        <span>thinking trace</span>
+        {streaming && (
+          <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-mute" />
+        )}
+        <span className="ml-auto text-[9px] text-mute">details</span>
+      </summary>
+      <p className="mt-2 whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-mute">
+        {text}
+      </p>
+    </details>
+  );
+}
+
+function ToolActivity({ messages }: { messages: MessageDTO[] }) {
+  const running = messages.filter(
+    (message) => String(message.payload.status) === "running",
+  ).length;
+  const errors = messages.filter(
+    (message) => String(message.payload.status) === "error",
+  ).length;
+  const status = errors
+    ? `${errors} failed`
+    : running
+      ? `${running} running`
+      : "completed";
+
+  return (
+    <details className="max-w-4xl border border-rule bg-ink-2/45">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 font-mono text-[11px] select-none">
+        <StatusDot status={errors ? "error" : running ? "running" : "completed"} />
+        <span className="text-paper">tool activity</span>
+        <span className="text-mute">
+          {messages.length} {messages.length === 1 ? "call" : "calls"}
+        </span>
+        <span className="ml-auto text-mute">{status} · details</span>
+      </summary>
+      <ul className="border-t border-rule px-3 py-1.5">
+        {messages.map((message) => (
+          <li key={message.id} className="border-b border-rule/60 last:border-0">
+            <ToolCallRow payload={message.payload} />
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+function ToolCallRow({ payload }: { payload: Record<string, unknown> }) {
   const name = String(payload.name ?? "tool");
   const status = String(payload.status ?? "running");
   const args = payload.args;
   const result = payload.result;
+  const hasDetails =
+    (args !== undefined && args !== null) ||
+    (result !== undefined && result !== null);
+  const content = (
+    <>
+      <StatusDot status={status} />
+      <span className="min-w-0 truncate text-paper">{name}</span>
+      <span className="text-mute">{status}</span>
+      {hasDetails && <span className="ml-auto text-mute">view</span>}
+    </>
+  );
+
+  if (!hasDetails) {
+    return <div className="flex items-center gap-2 py-1.5 font-mono text-[11px]">{content}</div>;
+  }
+
   return (
-    <details className="border border-rule bg-ink-2 px-3 py-2">
-      <summary className="flex cursor-pointer items-center gap-2 font-mono text-[12px]">
-        <span
-          className={`h-1.5 w-1.5 rounded-full ${
-            status === "running"
-              ? "bg-acid pulse-dot"
-              : status === "error"
-                ? "bg-tangerine"
-                : "bg-sky"
-          }`}
-        />
-        <span>{name}</span>
-        <span className="text-mute">{status}</span>
+    <details>
+      <summary className="flex cursor-pointer list-none items-center gap-2 py-1.5 font-mono text-[11px] select-none">
+        {content}
       </summary>
-      {(args !== undefined && args !== null) ||
-      (result !== undefined && result !== null) ? (
-        <pre className="mt-2 max-h-48 overflow-auto font-mono text-[11px] text-mute">
-          {JSON.stringify(
-            {
-              ...(args !== undefined && args !== null ? { args } : {}),
-              ...(result !== undefined && result !== null ? { result } : {}),
-            },
-            null,
-            2,
-          )}
-        </pre>
-      ) : null}
+      <pre className="mb-2 max-h-48 overflow-auto bg-ink px-2 py-2 font-mono text-[11px] text-mute">
+        {JSON.stringify(
+          {
+            ...(args !== undefined && args !== null ? { args } : {}),
+            ...(result !== undefined && result !== null ? { result } : {}),
+          },
+          null,
+          2,
+        )}
+      </pre>
     </details>
+  );
+}
+
+function StatusDot({ status }: { status: string }) {
+  return (
+    <span
+      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+        status === "running"
+          ? "bg-acid pulse-dot"
+          : status === "error"
+            ? "bg-tangerine"
+            : "bg-sky"
+      }`}
+    />
   );
 }

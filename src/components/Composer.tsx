@@ -3,6 +3,14 @@
 import { useEffect, useRef } from "react";
 import type { AgentMode, BusyState, ModelDTO } from "@/lib/types";
 
+export function shouldSubmitComposerKey(
+  key: string,
+  shiftKey: boolean,
+  isComposing: boolean,
+) {
+  return key === "Enter" && !shiftKey && !isComposing;
+}
+
 export function Composer({
   text,
   mode,
@@ -39,7 +47,13 @@ export function Composer({
   }, [focusSignal]);
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    if (
+      shouldSubmitComposerKey(
+        e.key,
+        e.shiftKey,
+        e.nativeEvent.isComposing,
+      )
+    ) {
       e.preventDefault();
       if (!blocked && text.trim()) onSend();
     }
@@ -91,7 +105,7 @@ export function Composer({
           )}
         </select>
         <span className="ml-auto hidden font-mono text-[10px] text-mute sm:inline">
-          ⌘ Enter to send
+          Enter to send · Shift Enter for newline
         </span>
       </div>
       <div className="flex gap-2">

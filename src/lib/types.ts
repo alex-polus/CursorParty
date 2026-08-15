@@ -21,6 +21,7 @@ export type GuestDTO = {
   workspaceId: string;
   displayName: string;
   color: string;
+  profilePicture: string | null;
 };
 
 export type PresenceGuest = GuestDTO & {

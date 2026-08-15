@@ -34,6 +34,19 @@ import type { Orchestrator } from "../sdk/orchestrator";
 
 const log = createLogger("api");
 
+const PROFILE_PICTURE_PATTERN = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
+const MAX_PROFILE_PICTURE_LENGTH = 1_400_000;
+
+function validProfilePicture(value: unknown): value is string | null | undefined {
+  return (
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" &&
+      value.length <= MAX_PROFILE_PICTURE_LENGTH &&
+      PROFILE_PICTURE_PATTERN.test(value))
+  );
+}
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -235,9 +248,12 @@ export async function handleApi(
         notFound(res);
         return true;
       }
-      let body: { displayName?: string };
+      let body: { displayName?: string; profilePicture?: string | null };
       try {
-        body = await readJson<{ displayName?: string }>(req);
+        body = await readJson<{
+          displayName?: string;
+          profilePicture?: string | null;
+        }>(req);
       } catch (err) {
         log.warn("request.invalid_body", {
           requestId,
@@ -253,6 +269,13 @@ export async function handleApi(
         json(res, 400, { error: "Display name must be 1–32 characters." });
         return true;
       }
+      if (!validProfilePicture(body.profilePicture)) {
+        json(res, 400, {
+          error: "Profile picture must be a PNG, JPEG, WebP, or GIF under 1 MB.",
+        });
+        return true;
+      }
+      const profilePicture = body.profilePicture ?? null;
 
       const cookies = parseCookies(req.headers.cookie);
       const workspaceCookie = guestCookieName(workspace.id);
@@ -264,7 +287,7 @@ export async function handleApi(
       if (existing) {
         await db
           .update(guests)
-          .set({ displayName, lastSeenAt: now() })
+          .set({ displayName, profilePicture, lastSeenAt: now() })
           .where(eq(guests.id, existing.id));
         const me = await getGuest(existing.id);
         json(
@@ -289,6 +312,7 @@ export async function handleApi(
         workspaceId: workspace.id,
         displayName,
         color,
+        profilePicture,
         createdAt: t,
         lastSeenAt: t,
       });
@@ -297,6 +321,7 @@ export async function handleApi(
         workspaceId: workspace.id,
         displayName,
         color,
+        profilePicture,
         createdAt: t,
         lastSeenAt: t,
       }) }, { "Set-Cookie": serializeCookie(workspaceCookie, id) });
