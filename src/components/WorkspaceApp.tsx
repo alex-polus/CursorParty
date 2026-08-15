@@ -337,8 +337,12 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
     return null;
   }, [busy, connected, selected]);
 
-  async function onJoin(displayName: string) {
-    const { guest } = await claimGuest(workspaceId, displayName);
+  async function onJoin(displayName: string, profilePicture: string | null) {
+    const { guest } = await claimGuest(
+      workspaceId,
+      displayName,
+      profilePicture,
+    );
     meRef.current = guest;
     setMe(guest);
   }

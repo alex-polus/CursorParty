@@ -14,6 +14,7 @@ export async function ensureSchema() {
       workspace_id TEXT NOT NULL,
       display_name TEXT NOT NULL,
       color TEXT NOT NULL,
+      profile_picture TEXT,
       created_at INTEGER NOT NULL,
       last_seen_at INTEGER NOT NULL
     );
@@ -55,4 +56,9 @@ export async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS idx_runs_thread ON runs(thread_id);
     CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, created_at);
   `);
+
+  const guestColumns = await sqlite.execute("PRAGMA table_info(guests)");
+  if (!guestColumns.rows.some((row) => row.name === "profile_picture")) {
+    await sqlite.execute("ALTER TABLE guests ADD COLUMN profile_picture TEXT");
+  }
 }

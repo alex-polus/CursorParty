@@ -28,6 +28,7 @@ export function toGuest(row: typeof guests.$inferSelect): GuestDTO {
     workspaceId: row.workspaceId,
     displayName: row.displayName,
     color: row.color,
+    profilePicture: row.profilePicture,
   };
 }
 

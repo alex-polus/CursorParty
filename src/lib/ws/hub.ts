@@ -66,6 +66,7 @@ export class Hub {
           workspaceId,
           displayName: "",
           color: "",
+          profilePicture: null,
           viewingThreadId: meta.viewingThreadId,
         });
       }
