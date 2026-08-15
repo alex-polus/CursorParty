@@ -1,0 +1,18 @@
+services:
+  cursorparty:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: file:./data/cursorparty.db
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - cursorparty-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  cursorparty-data:

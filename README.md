@@ -85,6 +85,7 @@ Schema is created on boot (`src/lib/db/ensure.ts`). SQLite lives in `./data/` an
 - **Node.js 22.13+** (the Cursor SDK will not load on older runtimes)
 - **pnpm**
 - A [Cursor API key](https://cursor.com/dashboard/api) (`CURSOR_API_KEY`)
+- **Privacy Mode** enabled on that Cursor account — not **Privacy Mode (Legacy)**. Cloud agents (including SDK/API runs) need temporary server-side storage; Legacy blocks it and returns `[feature_unavailable] Storage mode is disabled`.
 - The GitHub repo must already be **connected** to that Cursor account / team (Cursor GitHub App)
 - Anyone with the workspace URL can start agents and **spend that API key**
 
@@ -110,14 +111,37 @@ pnpm build
 pnpm start
 ```
 
+### Docker
+
+Same single-process server as `pnpm start`, with SQLite persisted in a named volume.
+
+```bash
+cp .env.example .env
+# set CURSOR_API_KEY (required) and optional defaults
+
+docker compose up --build
+```
+
+Open [http://localhost:3000](http://localhost:3000). Logs go to stdout as JSON (`LOG_LEVEL` defaults to `info` in the container).
+
+Plain Docker:
+
+```bash
+docker build -t cursorparty .
+docker run -p 3000:3000 --env-file .env -v cursorparty-data:/app/data cursorparty
+```
+
+If you put a reverse proxy in front, allow WebSocket upgrades on `/ws`.
+
 ### Connect a GitHub repo
 
 Cloud agents clone the repo in a Cursor VM; they do not use your local working tree.
 
 1. Put a user or service-account key in `CURSOR_API_KEY`.
-2. In the Cursor dashboard, connect GitHub and grant the Cursor GitHub App access to the repo.
-3. Use the **https** GitHub URL (`https://github.com/org/repo`), not SSH or a local path.
-4. `CURSOR_PARTY_REPO_URL` / `STARTING_REF` / `WORKSPACE_NAME` only prefill the form and seed `/w/default` on first boot. You can also paste the URL in the UI.
+2. In [Cursor settings](https://cursor.com/settings), use **Privacy Mode** (not **Privacy Mode (Legacy)**). Legacy disables agent storage and blocks SDK/API runs with `Storage mode is disabled`. On a team, an admin may need to change this in the dashboard.
+3. In the Cursor dashboard, connect GitHub and grant the Cursor GitHub App access to the repo.
+4. Use the **https** GitHub URL (`https://github.com/org/repo`), not SSH or a local path.
+5. `CURSOR_PARTY_REPO_URL` / `STARTING_REF` / `WORKSPACE_NAME` only prefill the form and seed `/w/default` on first boot. You can also paste the URL in the UI.
 
 If a default workspace was already seeded with a placeholder URL, create a new room instead of relying on `/w/default`.
 
@@ -188,6 +212,7 @@ REST is for bootstrap (create room, claim guest, replay history). Live control i
 
 - Treat the invite URL like the API key. There is no login and no per-guest spend limit.
 - Repo validation uses `Cursor.repositories.list`. Connect the GitHub repo on that Cursor account before creating a workspace.
+- SDK/API agents require **Privacy Mode** (storage enabled). **Privacy Mode (Legacy)** returns `Storage mode is disabled` — switch in [Cursor settings](https://cursor.com/settings).
 - If the process restarts mid-run, the orchestrator rehydrates active SDK runs on boot.
 - Clearing cookies creates a new guest identity; the old name stays in history.
 - `pnpm next dev` alone is not enough — use `pnpm dev` so REST and WebSocket share the same server.
