@@ -18,6 +18,7 @@ import {
 } from "../db/queries";
 import { cursorApiKey } from "../env";
 import { nid, now } from "../ids";
+import { createLogger } from "../logging";
 import type {
   AgentMode,
   BusyState,
@@ -28,6 +29,8 @@ import type {
 } from "../types";
 
 export type Broadcast = (workspaceId: string, message: ServerMessage) => void;
+
+const log = createLogger("orchestrator");
 
 export class WorkspaceBusyError extends Error {
   constructor(public busy: BusyState) {
@@ -106,7 +109,11 @@ export class Orchestrator {
         id: m.id,
         displayName: m.displayName || m.id,
       }));
-    } catch {
+    } catch (err) {
+      log.warn("models.list_failed", {
+        error: err,
+        fallbackModels: ["composer-2.5", "auto"],
+      });
       return [
         { id: "composer-2.5", displayName: "Composer 2.5" },
         { id: "auto", displayName: "Auto" },
@@ -122,6 +129,10 @@ export class Orchestrator {
 
     for (const row of running) {
       if (!row.cursorAgentId) {
+        log.warn("rehydrate.missing_agent_id", {
+          workspaceId: row.workspaceId,
+          threadId: row.id,
+        });
         await this.markThread(row.id, "error");
         continue;
       }
@@ -137,6 +148,11 @@ export class Orchestrator {
           .limit(1);
 
         if (!runRow?.cursorRunId) {
+          log.warn("rehydrate.missing_run_id", {
+            workspaceId: row.workspaceId,
+            threadId: row.id,
+            runId: runRow?.id,
+          });
           await this.markThread(row.id, "idle");
           continue;
         }
@@ -154,9 +170,20 @@ export class Orchestrator {
           guestName: guest?.displayName ?? "Someone",
         });
         this.activeRuns.set(row.id, run);
+        log.info("rehydrate.succeeded", {
+          workspaceId: row.workspaceId,
+          threadId: row.id,
+          runId: runRow.id,
+          cursorAgentId: row.cursorAgentId,
+          cursorRunId: runRow.cursorRunId,
+        });
         void this.pump(row.workspaceId, row.id, runRow.id, run);
       } catch (err) {
-        console.error("[cursorparty] rehydrate failed", row.id, err);
+        log.error("rehydrate.failed", err, {
+          workspaceId: row.workspaceId,
+          threadId: row.id,
+          cursorAgentId: row.cursorAgentId,
+        });
         await this.markThread(row.id, "error");
       }
     }
@@ -232,6 +259,15 @@ export class Orchestrator {
       guestName: guest.displayName,
     };
     this.busy.set(opts.workspaceId, busy);
+    log.info("prompt.accepted", {
+      workspaceId: opts.workspaceId,
+      threadId,
+      guestId: opts.guestId,
+      mode: opts.mode,
+      model: opts.model,
+      isNewThread: !opts.threadId,
+      promptLength: text.length,
+    });
     this.broadcast(opts.workspaceId, { type: "workspace_busy", busy });
 
     const thread = await getThread(threadId);
@@ -280,6 +316,7 @@ export class Orchestrator {
   }
 
   async cancel(workspaceId: string, threadId: string) {
+    log.info("run.cancel_requested", { workspaceId, threadId });
     const run = this.activeRuns.get(threadId);
     if (run) {
       if (run.supports("cancel")) {
@@ -321,7 +358,12 @@ export class Orchestrator {
       try {
         await Agent.archive(thread.cursorAgentId, { apiKey });
       } catch (err) {
-        console.warn("[cursorparty] Agent.archive", err);
+        log.warn("agent.archive_failed", {
+          error: err,
+          workspaceId,
+          threadId,
+          cursorAgentId: thread.cursorAgentId,
+        });
       }
     }
     await this.disposeAgent(threadId);
@@ -348,7 +390,12 @@ export class Orchestrator {
       try {
         await Agent.delete(thread.cursorAgentId, { apiKey });
       } catch (err) {
-        console.warn("[cursorparty] Agent.delete", err);
+        log.warn("agent.delete_failed", {
+          error: err,
+          workspaceId,
+          threadId,
+          cursorAgentId: thread.cursorAgentId,
+        });
       }
     }
     await this.disposeAgent(threadId);
@@ -380,12 +427,27 @@ export class Orchestrator {
 
       if (!agent) {
         if (threadRow?.cursorAgentId) {
+          log.info("agent.resuming", {
+            workspaceId: opts.workspaceId,
+            threadId: opts.threadId,
+            runId: opts.runId,
+            cursorAgentId: threadRow.cursorAgentId,
+          });
           agent = await Agent.resume(threadRow.cursorAgentId, {
             apiKey,
             model: { id: opts.model },
             mode: opts.mode,
           });
         } else {
+          log.info("agent.creating", {
+            workspaceId: opts.workspaceId,
+            threadId: opts.threadId,
+            runId: opts.runId,
+            model: opts.model,
+            mode: opts.mode,
+            repoUrl: opts.repoUrl,
+            startingRef: opts.startingRef,
+          });
           agent = await Agent.create({
             apiKey,
             name: threadRow?.title ?? titleFromPrompt(opts.text),
@@ -443,6 +505,13 @@ export class Orchestrator {
         .where(eq(runs.id, opts.runId));
 
       this.activeRuns.set(opts.threadId, run);
+      log.info("run.started", {
+        workspaceId: opts.workspaceId,
+        threadId: opts.threadId,
+        runId: opts.runId,
+        cursorRunId: run.id,
+        cursorAgentId: agent.agentId,
+      });
       const upserted = await getThread(opts.threadId);
       if (upserted) {
         this.broadcast(opts.workspaceId, { type: "thread_upsert", thread: upserted });
@@ -476,6 +545,26 @@ export class Orchestrator {
           : result.status === "cancelled"
             ? "cancelled"
             : "error";
+
+      if (terminal === "error") {
+        log.error("run.completed_with_error", result.error ?? result.status, {
+          workspaceId,
+          threadId,
+          runId,
+          cursorRunId: run.id,
+          status: result.status,
+        });
+      } else {
+        log.info("run.completed", {
+          workspaceId,
+          threadId,
+          runId,
+          cursorRunId: run.id,
+          status: result.status,
+          gitBranch,
+          gitPrUrl,
+        });
+      }
 
       await db
         .update(runs)
@@ -599,6 +688,13 @@ export class Orchestrator {
     err: unknown,
   ) {
     const { message, helpUrl } = describeError(err);
+    log.error("run.failed", err, {
+      workspaceId,
+      threadId,
+      runId,
+      userMessage: message,
+      helpUrl,
+    });
     await db
       .update(runs)
       .set({ status: "error", error: message, finishedAt: now() })
@@ -648,11 +744,12 @@ export class Orchestrator {
     if (!agent) return;
     try {
       agent.close();
-    } catch {
+    } catch (err) {
+      log.warn("agent.close_failed", { error: err, threadId });
       try {
         await agent[Symbol.asyncDispose]();
-      } catch {
-        // ignore
+      } catch (disposeErr) {
+        log.warn("agent.dispose_failed", { error: disposeErr, threadId });
       }
     }
   }

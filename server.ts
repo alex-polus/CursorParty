@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { parse } from "node:url";
+import { randomUUID } from "node:crypto";
 import next from "next";
 import { WebSocketServer } from "ws";
 import { ensureSchema } from "./src/lib/db/ensure";
@@ -8,6 +8,17 @@ import { listenHost, listenPort } from "./src/lib/env";
 import { handleApi } from "./src/lib/http/api";
 import { Orchestrator } from "./src/lib/sdk/orchestrator";
 import { Hub } from "./src/lib/ws/hub";
+import { createLogger } from "./src/lib/logging";
+
+const log = createLogger("server");
+
+process.on("unhandledRejection", (reason) => {
+  log.error("process.unhandled_rejection", reason);
+});
+
+process.on("uncaughtExceptionMonitor", (err, origin) => {
+  log.error("process.uncaught_exception", err, { origin });
+});
 
 async function main() {
   const dev = process.env.NODE_ENV !== "production";
@@ -24,24 +35,38 @@ async function main() {
   hub.setOrchestrator(orchestrator);
   await orchestrator.rehydrate();
 
-  const app = next({ dev, hostname, port });
+  const server = createServer();
+  const app = next({ dev, hostname, port, httpServer: server });
   const handle = app.getRequestHandler();
   await app.prepare();
 
-  const server = createServer((req, res) => {
-    void (async () => {
-      try {
-        if (await handleApi(req, res, orchestrator)) return;
-        const parsedUrl = parse(req.url ?? "/", true);
-        await handle(req, res, parsedUrl);
-      } catch (err) {
-        console.error("[cursorparty] request", err);
-        if (!res.headersSent) {
-          res.statusCode = 500;
-          res.end("Internal server error");
-        }
+  server.on("request", async (req, res) => {
+    const requestId = randomUUID();
+    req.headers["x-request-id"] = requestId;
+    res.setHeader("X-Request-Id", requestId);
+    try {
+      const requestUrl = new URL(
+        req.url ?? "/",
+        `http://${req.headers.host ?? "localhost"}`,
+      );
+      if (requestUrl.pathname.startsWith("/api/")) {
+        await handleApi(req, res, orchestrator);
+        return;
       }
-    })();
+      await handle(req, res);
+    } catch (err) {
+      log.error("http.request_failed", err, {
+        requestId,
+        method: req.method,
+        path: req.url,
+        statusCode: res.statusCode,
+        headersSent: res.headersSent,
+      });
+      if (!res.headersSent) {
+        res.statusCode = 500;
+        res.end("Internal server error");
+      }
+    }
   });
 
   const wss = new WebSocketServer({ server, path: "/ws" });
@@ -49,11 +74,25 @@ async function main() {
 
   server.listen(port, hostname, () => {
     const display = hostname === "0.0.0.0" ? "localhost" : hostname;
-    console.log(`[cursorparty] http://${display}:${port}`);
+    log.info("server.listening", {
+      url: `http://${display}:${port}`,
+      environment: process.env.NODE_ENV ?? "development",
+    });
+  });
+
+  server.on("clientError", (err, socket) => {
+    log.warn("http.client_error", {
+      error: err,
+      remoteAddress: socket.remoteAddress,
+    });
+  });
+
+  wss.on("error", (err) => {
+    log.error("websocket.server_error", err);
   });
 }
 
 main().catch((err) => {
-  console.error("[cursorparty] fatal", err);
+  log.error("server.startup_failed", err);
   process.exit(1);
 });

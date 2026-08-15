@@ -92,10 +92,16 @@ export function HomePage() {
 
         <section className="enter border border-rule bg-ink-2/80 p-6 shadow-[12px_16px_0_#000] [animation-delay:80ms]">
           <p className="ticket">open a workspace</p>
-          <form className="mt-4 grid gap-3" onSubmit={onCreate}>
+          <form
+            action="/api/workspaces"
+            method="post"
+            className="mt-4 grid gap-3"
+            onSubmit={onCreate}
+          >
             <label className="grid gap-1 text-xs uppercase tracking-[0.14em] text-mute">
               GitHub repo URL
               <input
+                name="repoUrl"
                 required
                 value={repoUrl}
                 onChange={(e) => setRepoUrl(e.target.value)}
@@ -107,6 +113,7 @@ export function HomePage() {
               <label className="grid gap-1 text-xs uppercase tracking-[0.14em] text-mute">
                 Branch
                 <input
+                  name="startingRef"
                   value={startingRef}
                   onChange={(e) => setStartingRef(e.target.value)}
                   className="border border-rule bg-ink px-3 py-2 font-mono text-sm text-paper outline-none focus:border-tangerine"
@@ -115,6 +122,7 @@ export function HomePage() {
               <label className="grid gap-1 text-xs uppercase tracking-[0.14em] text-mute">
                 Room name
                 <input
+                  name="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="optional"
@@ -126,6 +134,7 @@ export function HomePage() {
               <p className="text-sm text-tangerine">{error}</p>
             )}
             <button
+              type="submit"
               disabled={pending}
               className="mt-1 bg-tangerine px-4 py-2.5 text-sm font-semibold tracking-wide text-ink hover:brightness-110 disabled:opacity-50"
             >

@@ -5,6 +5,7 @@ import { db } from "../db/client";
 import { guests } from "../db/schema";
 import { getGuestInWorkspace, getWorkspace, toGuest } from "../db/queries";
 import { now } from "../ids";
+import { createLogger } from "../logging";
 import { GUEST_COOKIE, parseCookies } from "../http/cookies";
 import {
   describeError,
@@ -23,6 +24,8 @@ type SocketMeta = {
   viewingThreadId: string | null;
 };
 
+const log = createLogger("websocket");
+
 export class Hub {
   private sockets = new Map<WebSocket, SocketMeta>();
   private orchestrator!: Orchestrator;
@@ -35,7 +38,15 @@ export class Hub {
     const payload = JSON.stringify(message);
     for (const [socket, meta] of this.sockets) {
       if (meta.workspaceId === workspaceId && socket.readyState === WebSocket.OPEN) {
-        socket.send(payload);
+        try {
+          socket.send(payload);
+        } catch (err) {
+          log.error("broadcast.failed", err, {
+            workspaceId,
+            guestId: meta.guestId,
+            messageType: message.type,
+          });
+        }
       }
     }
   }
@@ -60,7 +71,12 @@ export class Hub {
 
   attach(wss: WebSocketServer) {
     wss.on("connection", (socket, req) => {
-      void this.onConnection(socket, req);
+      void this.onConnection(socket, req).catch((err) => {
+        log.error("connection.unhandled_failure", err, {
+          remoteAddress: req.socket.remoteAddress,
+        });
+        socket.close(1011, "Internal server error");
+      });
     });
   }
 
@@ -103,6 +119,12 @@ export class Hub {
         viewingThreadId: null,
       });
 
+      log.info("connection.opened", {
+        workspaceId,
+        guestId: guest.id,
+        remoteAddress: req.socket.remoteAddress,
+      });
+
       send(socket, { type: "hello_ok", guest, workspace });
       send(socket, {
         type: "models",
@@ -115,13 +137,35 @@ export class Hub {
       await this.emitPresence(workspaceId);
 
       socket.on("message", (raw) => {
-        void this.onMessage(socket, raw.toString());
+        void this.onMessage(socket, raw.toString()).catch((err) => {
+          log.error("message.unhandled_failure", err, {
+            workspaceId,
+            guestId: guest.id,
+          });
+        });
       });
-      socket.on("close", () => {
+      socket.on("close", (code, reason) => {
         this.sockets.delete(socket);
-        void this.emitPresence(workspaceId);
+        log.info("connection.closed", {
+          workspaceId,
+          guestId: guest.id,
+          code,
+          reason: reason.toString(),
+        });
+        void this.emitPresence(workspaceId).catch((err) => {
+          log.error("presence.broadcast_failed", err, { workspaceId });
+        });
+      });
+      socket.on("error", (err) => {
+        log.error("connection.socket_error", err, {
+          workspaceId,
+          guestId: guest.id,
+        });
       });
     } catch (err) {
+      log.error("connection.rejected", err, {
+        remoteAddress: req.socket.remoteAddress,
+      });
       const { message, helpUrl } = describeError(err);
       send(socket, { type: "error", message, helpUrl });
       socket.close();
@@ -135,7 +179,13 @@ export class Hub {
     let msg: ClientMessage;
     try {
       msg = JSON.parse(raw) as ClientMessage;
-    } catch {
+    } catch (err) {
+      log.warn("message.invalid_json", {
+        error: err,
+        workspaceId: meta.workspaceId,
+        guestId: meta.guestId,
+        payloadBytes: Buffer.byteLength(raw),
+      });
       send(socket, { type: "error", message: "Invalid message." });
       return;
     }
@@ -186,10 +236,21 @@ export class Hub {
       }
     } catch (err) {
       if (err instanceof WorkspaceBusyError) {
+        log.info("message.workspace_busy", {
+          workspaceId: meta.workspaceId,
+          guestId: meta.guestId,
+          messageType: msg.type,
+          activeThreadId: err.busy.threadId,
+        });
         send(socket, { type: "workspace_busy", busy: err.busy });
         send(socket, { type: "error", message: err.message });
         return;
       }
+      log.error("message.command_failed", err, {
+        workspaceId: meta.workspaceId,
+        guestId: meta.guestId,
+        messageType: msg.type,
+      });
       const { message, helpUrl } = describeError(err);
       send(socket, { type: "error", message, helpUrl });
     }
@@ -228,6 +289,10 @@ export class Hub {
 
 function send(socket: WebSocket, message: ServerMessage) {
   if (socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(message));
+    try {
+      socket.send(JSON.stringify(message));
+    } catch (err) {
+      log.error("send.failed", err, { messageType: message.type });
+    }
   }
 }
