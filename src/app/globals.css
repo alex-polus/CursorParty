@@ -1,0 +1,165 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Fraunces", serif;
+  --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --color-ink: #0e0c0a;
+  --color-ink-2: #171410;
+  --color-ink-3: #221e18;
+  --color-rule: #2c2720;
+  --color-paper: #f3ead8;
+  --color-mute: #8a8478;
+  --color-tangerine: #ff4d1a;
+  --color-acid: #d8ff3e;
+  --color-sky: #7eb6ff;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-sans);
+  letter-spacing: -0.011em;
+}
+
+body::before {
+  content: "";
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  opacity: 0.07;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='.55'/></svg>");
+}
+
+::selection {
+  background: var(--color-tangerine);
+  color: var(--color-ink);
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: italic;
+  letter-spacing: -0.04em;
+}
+
+.ticket {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-mute);
+}
+
+.hairline {
+  border-color: var(--color-rule);
+}
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #3a342c transparent;
+}
+
+.md-body {
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: #efe7d6;
+}
+
+.md-body p {
+  margin: 0.45em 0;
+}
+
+.md-body p:first-child {
+  margin-top: 0;
+}
+
+.md-body p:last-child {
+  margin-bottom: 0;
+}
+
+.md-body h1,
+.md-body h2,
+.md-body h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  margin: 0.8em 0 0.3em;
+}
+
+.md-body code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  background: #1c1813;
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+
+.md-body pre {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  background: #120f0c;
+  border: 1px solid var(--color-rule);
+  padding: 12px;
+  overflow: auto;
+  margin: 0.7em 0;
+}
+
+.md-body pre code {
+  background: none;
+  padding: 0;
+}
+
+.md-body a {
+  color: var(--color-sky);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.md-body ul,
+.md-body ol {
+  padding-left: 1.2em;
+  margin: 0.4em 0;
+}
+
+.md-body li {
+  margin: 0.15em 0;
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.enter {
+  animation: enter 0.45s ease both;
+}
