@@ -55,114 +55,175 @@ export function HomePage() {
   }
 
   return (
-    <main className="relative min-h-full overflow-hidden">
+    <main className="landing-sans relative min-h-full overflow-hidden">
       <div
         aria-hidden
-        className="pointer-events-none absolute -left-24 top-[-8rem] h-[28rem] w-[28rem] rounded-full blur-3xl"
-        style={{ background: "radial-gradient(circle, #ff4d1a33, transparent 70%)" }}
+        className="pointer-events-none absolute -left-28 top-[-10rem] h-[32rem] w-[32rem] rounded-full blur-3xl"
+        style={{ background: "radial-gradient(circle, #2ea8ff28, transparent 68%)" }}
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute right-[-6rem] bottom-[-8rem] h-[24rem] w-[24rem] rounded-full blur-3xl"
-        style={{ background: "radial-gradient(circle, #d8ff3e22, transparent 70%)" }}
+        className="pointer-events-none absolute right-[-8rem] top-24 h-[22rem] w-[22rem] rounded-full blur-3xl"
+        style={{ background: "radial-gradient(circle, #e83dff1f, transparent 70%)" }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute bottom-[-10rem] left-1/3 h-[26rem] w-[26rem] rounded-full blur-3xl"
+        style={{ background: "radial-gradient(circle, #f5b40018, transparent 70%)" }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute right-[-4rem] bottom-[-8rem] h-[24rem] w-[24rem] rounded-full blur-3xl"
+        style={{ background: "radial-gradient(circle, #2ecc8a22, transparent 70%)" }}
       />
 
-      <div className="mx-auto grid min-h-full max-w-6xl gap-16 px-6 py-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:px-10">
-        <section className="enter">
-          <p className="ticket">v1 · multiplayer agent view</p>
-          <h1 className="wordmark mt-3 max-w-xl text-6xl leading-[0.92] text-paper sm:text-7xl">
-            One room.
-            <br />
-            Many engineers.
-            <span className="text-tangerine"> One agent.</span>
-          </h1>
-          <p className="mt-6 max-w-md text-[15px] leading-relaxed text-mute">
-            CursorParty is a shared Agent View over a GitHub repo. Not an IDE —
-            your editor stays yours. The transcript, the prompt, and who is in
-            the room become multiplayer.
-          </p>
-          {!hasApiKey && (
-            <p className="mt-4 max-w-md border border-tangerine/40 bg-tangerine/10 px-3 py-2 text-sm text-paper">
-              No <span className="font-mono text-xs">CURSOR_API_KEY</span> in
-              env. You can still open a room; agents will not start until a key
-              is set.
-            </p>
-          )}
-        </section>
+      <div className="relative mx-auto flex min-h-full max-w-6xl flex-col px-6 py-8 lg:px-10 lg:py-10">
+        <header className="enter flex items-center justify-between gap-4">
+          <img
+            src="/cursorparty-lockup.png"
+            alt="CursorParty"
+            width={500}
+            height={500}
+            className="-ml-8 h-52 w-52 bg-transparent object-contain sm:h-64 sm:w-64 lg:-ml-10 lg:h-80 lg:w-80"
+          />
+          <p className="ticket text-right">v1 · multiplayer agent view</p>
+        </header>
 
-        <section className="enter border border-rule bg-ink-2/80 p-6 shadow-[12px_16px_0_#000] [animation-delay:80ms]">
-          <p className="ticket">open a workspace</p>
-          <form
-            action="/api/workspaces"
-            method="post"
-            className="mt-4 grid gap-3"
-            onSubmit={onCreate}
-          >
-            <label className="grid gap-1 text-xs uppercase tracking-[0.14em] text-mute">
-              GitHub repo URL
-              <input
-                name="repoUrl"
-                required
-                value={repoUrl}
-                onChange={(e) => setRepoUrl(e.target.value)}
-                placeholder="https://github.com/org/repo"
-                className="border border-rule bg-ink px-3 py-2 font-mono text-sm text-paper outline-none focus:border-tangerine"
-              />
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="grid gap-1 text-xs uppercase tracking-[0.14em] text-mute">
-                Branch
-                <input
-                  name="startingRef"
-                  value={startingRef}
-                  onChange={(e) => setStartingRef(e.target.value)}
-                  className="border border-rule bg-ink px-3 py-2 font-mono text-sm text-paper outline-none focus:border-tangerine"
-                />
-              </label>
-              <label className="grid gap-1 text-xs uppercase tracking-[0.14em] text-mute">
-                Room name
-                <input
-                  name="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="optional"
-                  className="border border-rule bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-tangerine"
-                />
-              </label>
-            </div>
-            {error && (
-              <p className="text-sm text-tangerine">{error}</p>
-            )}
-            <button
-              type="submit"
-              disabled={pending}
-              className="mt-1 bg-tangerine px-4 py-2.5 text-sm font-semibold tracking-wide text-ink hover:brightness-110 disabled:opacity-50"
+        <div className="grid flex-1 items-center gap-14 py-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)] lg:gap-16 lg:py-6">
+          <section className="max-w-2xl">
+            <h1 className="landing-display text-[clamp(2.85rem,8.4vw,6.15rem)] leading-[0.86] text-paper">
+              <span className="enter block" style={{ animationDelay: "40ms" }}>
+                One room
+                <span className="text-party-blue">.</span>
+              </span>
+              <span
+                className="enter mt-[0.06em] block"
+                style={{ animationDelay: "120ms" }}
+              >
+                Many engineers
+                <span className="text-party-magenta">.</span>
+              </span>
+              <span
+                className="enter mt-[0.06em] block text-tangerine"
+                style={{ animationDelay: "200ms" }}
+              >
+                One agent
+                <span className="text-party-gold">.</span>
+              </span>
+            </h1>
+
+            <div
+              aria-hidden
+              className="enter mt-8 flex items-center gap-2.5"
+              style={{ animationDelay: "280ms" }}
             >
-              {pending ? "Opening…" : "Start the party"}
-            </button>
-          </form>
-
-          {recent.length > 0 && (
-            <div className="mt-6 border-t border-rule pt-4">
-              <p className="ticket mb-2">recent rooms</p>
-              <ul className="grid gap-1">
-                {recent.map((ws) => (
-                  <li key={ws.id}>
-                    <a
-                      href={`/w/${ws.id}`}
-                      className="flex items-baseline justify-between gap-3 px-1 py-1.5 text-sm hover:text-acid"
-                    >
-                      <span>{ws.name}</span>
-                      <span className="truncate font-mono text-[11px] text-mute">
-                        {ws.repoUrl.replace("https://github.com/", "")}@{ws.startingRef}
-                      </span>
-                    </a>
-                  </li>
-                ))}
-              </ul>
+              <span className="h-2 w-2 rounded-full bg-party-blue" />
+              <span className="h-2 w-2 rounded-full bg-party-magenta" />
+              <span className="h-2 w-2 rounded-full bg-party-gold" />
+              <span className="h-2 w-2 rounded-full bg-party-teal" />
+              <span className="ml-1 h-px flex-1 max-w-24 bg-rule" />
             </div>
-          )}
-        </section>
+
+            <p
+              className="enter mt-6 max-w-md text-[15px] leading-relaxed text-mute"
+              style={{ animationDelay: "320ms" }}
+            >
+              CursorParty is a shared Agent View over a GitHub repo. Not an IDE —
+              your editor stays yours. The transcript, the prompt, and who is in
+              the room become multiplayer.
+            </p>
+            {!hasApiKey && (
+              <p className="mt-5 max-w-md border border-tangerine/40 bg-tangerine/10 px-3 py-2 text-sm text-paper">
+                No <span className="font-mono text-xs">CURSOR_API_KEY</span> in
+                env. You can still open a room; agents will not start until a key
+                is set.
+              </p>
+            )}
+          </section>
+
+          <section
+            className="enter min-w-0 overflow-hidden border border-rule bg-ink-2/85 p-6 shadow-[12px_16px_0_#000] backdrop-blur-[2px] sm:p-7"
+            style={{ animationDelay: "100ms" }}
+          >
+            <p className="ticket">open a workspace</p>
+            <form
+              action="/api/workspaces"
+              method="post"
+              className="mt-5 grid gap-3.5"
+              onSubmit={onCreate}
+            >
+              <label className="grid gap-1.5 text-xs uppercase tracking-[0.14em] text-mute">
+                GitHub repo URL
+                <input
+                  name="repoUrl"
+                  required
+                  value={repoUrl}
+                  onChange={(e) => setRepoUrl(e.target.value)}
+                  placeholder="https://github.com/org/repo"
+                  className="border border-rule bg-ink px-3 py-2.5 font-mono text-sm text-paper outline-none transition-colors focus:border-tangerine"
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="grid gap-1.5 text-xs uppercase tracking-[0.14em] text-mute">
+                  Branch
+                  <input
+                    name="startingRef"
+                    value={startingRef}
+                    onChange={(e) => setStartingRef(e.target.value)}
+                    className="border border-rule bg-ink px-3 py-2.5 font-mono text-sm text-paper outline-none transition-colors focus:border-tangerine"
+                  />
+                </label>
+                <label className="grid gap-1.5 text-xs uppercase tracking-[0.14em] text-mute">
+                  Room name
+                  <input
+                    name="name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="optional"
+                    className="border border-rule bg-ink px-3 py-2.5 text-sm text-paper outline-none transition-colors focus:border-tangerine"
+                  />
+                </label>
+              </div>
+              {error && (
+                <p className="text-sm text-tangerine">{error}</p>
+              )}
+              <button
+                type="submit"
+                disabled={pending}
+                className="mt-1 bg-tangerine px-4 py-3 text-sm font-semibold tracking-wide text-ink transition-[filter] hover:brightness-110 disabled:opacity-50"
+              >
+                {pending ? "Opening…" : "Start the party"}
+              </button>
+            </form>
+
+            {recent.length > 0 && (
+              <div className="mt-6 border-t border-rule pt-4">
+                <p className="ticket mb-2">recent rooms</p>
+                <ul className="grid min-w-0 gap-0.5">
+                  {recent.map((ws) => {
+                    const repo = `${ws.repoUrl.replace("https://github.com/", "")}@${ws.startingRef}`;
+                    return (
+                      <li key={ws.id} className="min-w-0">
+                        <a
+                          href={`/w/${ws.id}`}
+                          title={repo}
+                          className="flex min-w-0 items-baseline gap-3 overflow-hidden px-1 py-1.5 text-sm hover:text-acid"
+                        >
+                          <span className="min-w-0 max-w-[45%] shrink-0 truncate">
+                            {ws.name}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-right font-mono text-[11px] text-mute">
+                            {repo}
+                          </span>
+                        </a>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+          </section>
+        </div>
       </div>
     </main>
   );

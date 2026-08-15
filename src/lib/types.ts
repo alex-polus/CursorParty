@@ -76,6 +76,20 @@ export type MessageDTO = {
 export type ModelDTO = {
   id: string;
   displayName: string;
+  parameters: ModelParameterDTO[];
+  defaultParams: ModelParamDTO[];
+  variants: ModelParamDTO[][];
+};
+
+export type ModelParameterDTO = {
+  id: string;
+  displayName: string;
+  values: Array<{ value: string; displayName: string }>;
+};
+
+export type ModelParamDTO = {
+  id: string;
+  value: string;
 };
 
 export type BusyState = {
@@ -92,6 +106,7 @@ export type ClientMessage =
       text: string;
       mode: AgentMode;
       model: string;
+      modelParams: ModelParamDTO[];
     }
   | {
       type: "prompt";
@@ -99,6 +114,7 @@ export type ClientMessage =
       text: string;
       mode: AgentMode;
       model: string;
+      modelParams: ModelParamDTO[];
     }
   | { type: "cancel"; threadId: string }
   | { type: "archive_thread"; threadId: string }

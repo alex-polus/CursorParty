@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { BrandMark } from "./BrandMark";
 import type { BusyState, WorkspaceDTO } from "@/lib/types";
 
 export function TopBar({
@@ -40,8 +41,13 @@ export function TopBar({
 
   return (
     <header className="flex items-center gap-4 border-b border-rule px-4 py-2.5">
-      <a href="/" className="wordmark text-xl leading-none text-paper">
-        CursorParty
+      <a
+        href="/"
+        className="flex shrink-0 items-center gap-2 text-paper"
+        aria-label="CursorParty home"
+      >
+        <BrandMark className="h-8 w-10 text-paper" />
+        <span className="wordmark text-xl leading-none">CursorParty</span>
       </a>
       <span className="hidden h-4 w-px bg-rule sm:block" />
       <div className="min-w-0 flex-1">
