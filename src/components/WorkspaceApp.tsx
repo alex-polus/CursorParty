@@ -14,6 +14,10 @@ import {
   fetchThreads,
   fetchWorkspace,
 } from "@/lib/client/api";
+import {
+  defaultModelParams,
+  selectModelParam,
+} from "@/lib/client/model-options";
 import type {
   AgentMode,
   BusyState,
@@ -21,6 +25,7 @@ import type {
   GuestDTO,
   MessageDTO,
   ModelDTO,
+  ModelParamDTO,
   PresenceGuest,
   ServerMessage,
   ThreadDTO,
@@ -40,6 +45,7 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
   const [text, setText] = useState("");
   const [mode, setMode] = useState<AgentMode>("agent");
   const [model, setModel] = useState("composer-2.5");
+  const [modelParams, setModelParams] = useState<ModelParamDTO[]>([]);
   const [liveText, setLiveText] = useState("");
   const [liveThinking, setLiveThinking] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -114,6 +120,7 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
           const preferred =
             msg.models.find((m) => m.id === "composer-2.5") ?? msg.models[0];
           setModel(preferred.id);
+          setModelParams(defaultModelParams(preferred));
         }
         break;
       case "workspace_busy":
@@ -384,6 +391,7 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
           text: trimmed,
           mode,
           model,
+          modelParams,
         })
       ) {
         flash("The room is reconnecting. Your prompt was not sent.");
@@ -391,7 +399,15 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
       }
     } else {
       awaitingCreateRef.current = true;
-      if (!send({ type: "create_thread", text: trimmed, mode, model })) {
+      if (
+        !send({
+          type: "create_thread",
+          text: trimmed,
+          mode,
+          model,
+          modelParams,
+        })
+      ) {
         awaitingCreateRef.current = false;
         flash("The room is reconnecting. Your prompt was not sent.");
         return;
@@ -500,13 +516,29 @@ export function WorkspaceApp({ workspaceId }: { workspaceId: string }) {
             text={text}
             mode={mode}
             model={model}
+            modelParams={modelParams}
             models={models}
             busy={busy}
             disabledReason={disabledReason}
             focusSignal={composerFocusSignal}
             onText={setText}
             onMode={setMode}
-            onModel={setModel}
+            onModel={(nextModel) => {
+              setModel(nextModel);
+              setModelParams(
+                defaultModelParams(models.find((item) => item.id === nextModel)),
+              );
+            }}
+            onModelParam={(id, value) =>
+              setModelParams((params) =>
+                selectModelParam(
+                  models.find((item) => item.id === model),
+                  params,
+                  id,
+                  value,
+                ),
+              )
+            }
             onSend={onSend}
             onCancel={onCancel}
             onRestore={

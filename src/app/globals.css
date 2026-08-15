@@ -2,6 +2,7 @@
 
 @theme {
   --font-display: "Fraunces", serif;
+  --font-landing: "Outfit", "Segoe UI", sans-serif;
   --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --color-ink: #0e0c0a;
@@ -13,6 +14,10 @@
   --color-tangerine: #ff4d1a;
   --color-acid: #d8ff3e;
   --color-sky: #7eb6ff;
+  --color-party-blue: #2ea8ff;
+  --color-party-magenta: #e83dff;
+  --color-party-gold: #f5b400;
+  --color-party-teal: #2ecc8a;
 }
 
 html,
@@ -49,6 +54,17 @@ body::before {
   font-weight: 600;
   font-style: italic;
   letter-spacing: -0.04em;
+}
+
+.landing-display {
+  font-family: var(--font-landing);
+  font-weight: 800;
+  font-style: normal;
+  letter-spacing: -0.055em;
+}
+
+.landing-sans {
+  font-family: var(--font-landing);
 }
 
 .ticket {

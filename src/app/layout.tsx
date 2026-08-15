@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
-import { Fraunces, IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import { Fraunces, IBM_Plex_Mono, IBM_Plex_Sans, Outfit } from "next/font/google";
 import "./globals.css";
 
 const display = Fraunces({
   subsets: ["latin"],
   variable: "--font-display",
   style: ["normal", "italic"],
+});
+
+const landing = Outfit({
+  subsets: ["latin"],
+  weight: ["500", "600", "700", "800"],
+  variable: "--font-landing",
 });
 
 const sans = IBM_Plex_Sans({
@@ -32,7 +38,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${display.variable} ${sans.variable} ${mono.variable} antialiased`}>
+      <body className={`${display.variable} ${landing.variable} ${sans.variable} ${mono.variable} antialiased`}>
         {children}
       </body>
     </html>
