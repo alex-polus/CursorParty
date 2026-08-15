@@ -8,7 +8,7 @@ The multiplayer workspace for engineers and agents.
 
 v1 is a **shared Agent View** over a GitHub repo — not a cloud IDE. Engineers still write code in Cursor. CursorParty is the room where the team watches and drives Cursor cloud agents together.
 
-**Happy path:** open the app → create or open a workspace (repo + branch) → pick a name → see who’s online → start a thread → everyone watches the stream → follow up / cancel / archive → late joiners replay history.
+**Happy path:** open the app → create or open a workspace (repo + branch) → pick a name → see who’s online → start a thread → everyone watches the stream → follow up / cancel / archive / restore → late joiners replay history.
 
 > ⚠️ **Security:** there is no login. **Anyone with a workspace URL can start agents and spend your `CURSOR_API_KEY`.** Treat invite links like the API key itself. Only share within a trusted group and revoke the key if a link leaks.
 
@@ -59,7 +59,7 @@ This matches the v1 plan: a local-first, production-quality demo for 2–4 peopl
 
 - Threads backed by `@cursor/sdk` **cloud** agents (`Agent.create` / `Agent.resume` / `send` / `stream` / `wait`).
 - Live shared streaming over WebSocket: assistant text, thinking, tool-call start/complete, and status. Events are persisted to SQLite before broadcast, so a refresh or late join replays history.
-- Follow-up on the same thread, cancel, plan vs agent mode, model picker (`Cursor.models.list()`), archive, and delete (with confirm).
+- Follow-up on the same thread, cancel, plan vs agent mode, model picker (`Cursor.models.list()`), archive, restore, and delete (with confirm).
 - Git branch / PR URL chip when the SDK returns git metadata. No in-app diff viewer.
 - Auto-titled threads from the first prompt.
 - Collapsible tool-call cards (name + status; args/result parsed defensively).
@@ -215,7 +215,7 @@ src/lib/sdk/orchestrator.ts  Cursor Agent.create / send / stream / cancel
 src/lib/db/            SQLite schema, queries, seed
 ```
 
-REST is for bootstrap (create room, claim guest, replay history). Live control is WebSocket: `create_thread`, `prompt`, `cancel`, `archive_thread`, `delete_thread`, `viewing`.
+REST is for bootstrap (create room, claim guest, replay history). Live control is WebSocket: `create_thread`, `prompt`, `cancel`, `archive_thread`, `unarchive_thread`, `delete_thread`, `viewing`.
 
 ## Troubleshooting
 

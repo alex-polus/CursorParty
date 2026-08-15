@@ -432,6 +432,37 @@ export class Orchestrator {
     }
   }
 
+  async unarchive(workspaceId: string, threadId: string) {
+    const thread = await getThread(threadId);
+    if (!thread || thread.workspaceId !== workspaceId) {
+      throw new Error("Thread not found.");
+    }
+    if (thread.status !== "archived") {
+      throw new Error("This thread is not archived.");
+    }
+    const apiKey = cursorApiKey();
+    if (thread.cursorAgentId && apiKey) {
+      try {
+        await Agent.unarchive(thread.cursorAgentId, { apiKey });
+      } catch (err) {
+        log.warn("agent.unarchive_failed", {
+          error: err,
+          workspaceId,
+          threadId,
+          cursorAgentId: thread.cursorAgentId,
+        });
+      }
+    }
+    await db
+      .update(threads)
+      .set({ status: "idle", updatedAt: now() })
+      .where(eq(threads.id, threadId));
+    const updated = await getThread(threadId);
+    if (updated) {
+      this.broadcast(workspaceId, { type: "thread_upsert", thread: updated });
+    }
+  }
+
   async delete(workspaceId: string, threadId: string) {
     if (this.busy.get(workspaceId)?.threadId === threadId) {
       throw new Error("Cancel the running agent before deleting.");
